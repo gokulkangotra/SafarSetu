@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -30,7 +30,9 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "INTERNET"
+        "INTERNET",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -43,6 +45,11 @@
           "locationAlwaysAndWhenInUsePermission": "SafarSetu needs location to show nearby vehicles."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2dc746d9-deeb-4602-bc36-2f2123370b5b"
+      }
+    }
   }
 }

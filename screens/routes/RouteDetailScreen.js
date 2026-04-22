@@ -14,9 +14,9 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import GradientButton from '../../components/GradientButton';
-import { getRouteVehicles } from '../../services/supabaseService';
+import { getRouteVehicles, subscribeToVehicleLocations } from '../../services/supabaseService';
 import * as Location from 'expo-location';
-import { calculateETA, formatETA } from '../../utils/locationUtils';
+import { calculateETA, formatETA, formatDistance } from '../../utils/locationUtils';
 
 const TAB = { STOPS: 'stops', VEHICLES: 'vehicles', INFO: 'info' };
 
@@ -28,23 +28,41 @@ const RouteDetailScreen = ({ navigation, route }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let subscription = null;
     if (routeData?.id) {
-      loadRouteVehicles();
-      const interval = setInterval(loadRouteVehicles, 12000);
-      return () => clearInterval(interval);
+      loadRouteVehicles().then((vehicles) => {
+        if (vehicles && vehicles.length > 0) {
+          const vIds = vehicles.map(v => v.id);
+          subscription = subscribeToVehicleLocations(vIds, (newLoc) => {
+            setRouteVehicles(prev => prev.map(v => 
+              v.id === newLoc.vehicle_id 
+                ? { ...v, location: { latitude: Number(newLoc.latitude), longitude: Number(newLoc.longitude) }, speed: Number(newLoc.speed) }
+                : v
+            ));
+          });
+        }
+      });
+      const interval = setInterval(loadRouteVehicles, 20000); // Polling as fallback
+      return () => {
+        clearInterval(interval);
+        if (subscription) subscription.unsubscribe();
+      };
     }
   }, [routeData]);
 
   const loadRouteVehicles = async () => {
-    if (!routeData?.id) return;
+    if (!routeData?.id) return [];
     setIsLoading(true);
     const { vehicles, error } = await getRouteVehicles(routeData.id);
     if (!error) {
       setRouteVehicles(vehicles);
+      setIsLoading(false);
+      return vehicles;
     } else {
       console.log('Route vehicle load error:', error);
+      setIsLoading(false);
+      return [];
     }
-    setIsLoading(false);
   };
 
   if (!routeData) {
@@ -58,11 +76,44 @@ const RouteDetailScreen = ({ navigation, route }) => {
   const renderStopEta = (stop) => {
     if (!routeVehicles || routeVehicles.length === 0) return null;
     
+    const sortedStops = [...(routeData.stops || [])].sort((a,b) => (a.order || 0) - (b.order || 0));
+
     const approachingVehicles = routeVehicles.map(v => {
       if (!v.location?.latitude || !v.location?.longitude) return null;
-      const etaData = calculateETA(v.location.latitude, v.location.longitude, stop.latitude, stop.longitude, v.speed || 25);
-      return { ...v, ...etaData };
-    }).filter(v => v !== null && v.distanceKm < 15)
+      
+      let closestStop = null;
+      let minDistance = Infinity;
+      
+      sortedStops.forEach((s) => {
+        const d = calculateETA(v.location.latitude, v.location.longitude, s.latitude, s.longitude, v.speed || 25).distanceKm;
+        if (d < minDistance) {
+            minDistance = d;
+            closestStop = s;
+        }
+      });
+      
+      if (!closestStop) return null;
+      
+      if (stop.order < closestStop.order) {
+        return null;
+      }
+      
+      let totalDistance = minDistance;
+      let totalMins = calculateETA(v.location.latitude, v.location.longitude, closestStop.latitude, closestStop.longitude, v.speed || 25).durationMins;
+      
+      for (let i = 0; i < sortedStops.length; i++) {
+         const currentS = sortedStops[i];
+         if (currentS.order > closestStop.order && currentS.order <= stop.order) {
+             // Use fallback calculation if db fields are missing
+             const distanceSegment = currentS.distanceFromPrevKm || 0;
+             const timeSegment = currentS.avgTravelTimeMinutes || (distanceSegment > 0 ? (distanceSegment / (v.speed || 25)) * 60 : 0);
+             totalDistance += distanceSegment;
+             totalMins += timeSegment;
+         }
+      }
+      
+      return { ...v, distanceKm: totalDistance, durationMins: totalMins };
+    }).filter(v => v !== null)
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, 2);
 
@@ -168,7 +219,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
         {activeTab === TAB.STOPS && (

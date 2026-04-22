@@ -10,6 +10,8 @@ const translateRoute = (route, index = 0) => {
       latitude: item.stop?.latitude || item.latitude,
       longitude: item.stop?.longitude || item.longitude,
       order: item.stop_order,
+      distanceFromPrevKm: Number(item.distance_from_prev_km) || 0,
+      avgTravelTimeMinutes: Number(item.avg_travel_time_minutes) || 0,
     }))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
@@ -227,7 +229,7 @@ export const getSession = async () => {
 export const getRoutes = async () => {
   const { data, error } = await supabase
     .from('routes')
-    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, stop:stops(id, stop_name, latitude, longitude))`);
+    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`);
   if (error) {
     return { routes: [], error };
   }
@@ -240,7 +242,7 @@ export const getRoutes = async () => {
 export const getRouteById = async (routeId) => {
   const { data, error } = await supabase
     .from('routes')
-    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, stop:stops(id, stop_name, latitude, longitude))`)
+    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`)
     .eq('id', routeId)
     .single();
   if (error) {
@@ -297,7 +299,7 @@ export const getRouteVehicles = async (routeId) => {
     .from('trips')
     .select('id, vehicle_id, status, start_time, end_time, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
     .eq('route_id', routeId)
-    .in('status', ['running', 'scheduled', 'active', 'ongoing']);
+    .in('status', ['running', 'scheduled']);
 
   if (tripResult.error) {
     return { vehicles: [], error: tripResult.error };
@@ -340,11 +342,42 @@ export const getRouteVehicles = async (routeId) => {
         longitude: Number(location.longitude) || 0,
       },
       tripId: trip?.id,
-      eta: trip?.status === 'running' ? 'Live' : 'Scheduled',
     };
   });
 
   return { vehicles, error: null };
+};
+
+export const subscribeToVehicleLocations = (vehicleIds, onUpdate) => {
+  if (!vehicleIds || vehicleIds.length === 0) return null;
+
+  return supabase
+    .channel('public:vehicle_locations')
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'vehicle_locations',
+        filter: `vehicle_id=in.(${vehicleIds.join(',')})`,
+      },
+      (payload) => {
+        onUpdate(payload.new);
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'vehicle_locations',
+        filter: `vehicle_id=in.(${vehicleIds.join(',')})`,
+      },
+      (payload) => {
+        onUpdate(payload.new);
+      }
+    )
+    .subscribe();
 };
 
 export const getUserProfile = async (userId) => {
@@ -362,7 +395,7 @@ export const getUserProfile = async (userId) => {
 export const getBookings = async (passengerId) => {
   const { data, error } = await supabase
     .from('bookings')
-    .select(`id, passenger_id, trip_id, created_at, trip(id, route_id, status, route:routes(id, route_name, start_location, end_location, distance_km), vehicle:vehicles(id, vehicle_number)), payments(id, amount, currency, status, razorpay_order_id, razorpay_payment_id, created_at)`)
+    .select(`id, passenger_id, trip_id, created_at, trip:trips(id, route_id, status, route:routes(id, route_name, start_location, end_location, distance_km), vehicle:vehicles(id, vehicle_number)), payments(id, amount, currency, status, razorpay_order_id, razorpay_payment_id, created_at)`)
     .eq('passenger_id', passengerId)
     .order('created_at', { ascending: false });
   if (error) {
@@ -378,7 +411,7 @@ export const createBooking = async ({ passengerId, tripId, payment = null }) => 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')
     .insert({ passenger_id: passengerId, trip_id: tripId })
-    .select('id, passenger_id, trip_id, created_at, trip(id, route_id, status, route:routes(id, route_name, start_location, end_location, distance_km), vehicle:vehicles(id, vehicle_number))')
+    .select('id, passenger_id, trip_id, created_at, trip:trips(id, route_id, status, route:routes(id, route_name, start_location, end_location, distance_km), vehicle:vehicles(id, vehicle_number))')
     .single();
 
   if (bookingError) {
