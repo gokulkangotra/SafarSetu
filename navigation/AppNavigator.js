@@ -11,6 +11,7 @@ import RouteMapScreen from '../screens/routes/RouteMapScreen';
 import LiveMapScreen from '../screens/map/LiveMapScreen';
 import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentHistoryScreen from '../screens/payment/PaymentHistoryScreen';
+import BuyMobileTicketScreen from '../screens/payment/BuyMobileTicketScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
@@ -30,7 +31,8 @@ const RoutesStackNav = () => (
 );
 
 const PaymentStackNav = () => (
-  <PaymentStack.Navigator screenOptions={{ headerShown: false }}>
+  <PaymentStack.Navigator screenOptions={{ headerShown: false }} initialRouteName="BuyMobileTicket">
+    <PaymentStack.Screen name="BuyMobileTicket" component={BuyMobileTicketScreen} />
     <PaymentStack.Screen name="Payment" component={PaymentScreen} />
     <PaymentStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
   </PaymentStack.Navigator>

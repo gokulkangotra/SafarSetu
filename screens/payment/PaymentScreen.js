@@ -1,4 +1,4 @@
-﻿// PaymentScreen.js — Buy tickets and passes with Supabase bookings
+// PaymentScreen.js — Buy tickets and passes with Supabase bookings
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -61,6 +61,7 @@ const TICKET_TYPES = [
 const PaymentScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const preselectedRoute = route?.params?.route;
+  const customTicket = route?.params?.customTicket;
   const { addTicket } = useTickets();
   const { user } = useAuth();
 
@@ -87,14 +88,15 @@ const PaymentScreen = ({ navigation, route }) => {
   };
 
   const getPrice = () => {
+    if (customTicket) return customTicket.fare;
     if (selectedType.id === 'TKT_SINGLE') {
       return selectedRoute ? selectedRoute.fare?.normal || 0 : 0;
     }
     return selectedType.price || 0;
   };
 
-  const getFrom = () => (selectedRoute ? selectedRoute.source : 'Any');
-  const getTo = () => (selectedRoute ? selectedRoute.destination : 'Any');
+  const getFrom = () => customTicket ? customTicket.from : (selectedRoute ? selectedRoute.source : 'Any');
+  const getTo = () => customTicket ? customTicket.to : (selectedRoute ? selectedRoute.destination : 'Any');
 
   const handlePay = async () => {
     if (selectedType.id === 'TKT_SINGLE' && !selectedRoute) {
@@ -124,15 +126,15 @@ const PaymentScreen = ({ navigation, route }) => {
     const now = new Date();
     const ticket = {
       id: ticketId,
-      type: selectedType.name,
-      route: selectedRoute ? selectedRoute.number : 'ALL',
+      type: customTicket ? 'Mobile Ticket' : selectedType.name,
+      route: customTicket ? customTicket.route.number : (selectedRoute ? selectedRoute.number : 'ALL'),
       from: getFrom(),
       to: getTo(),
       date: now.toISOString().split('T')[0],
       time: now.toTimeString().slice(0, 5),
       fare: getPrice(),
       status: 'active',
-      qrData: `SAFARSETU|${ticketId}|${selectedRoute?.number || 'ALL'}|${getPrice()}|${now.toISOString()}`,
+      qrData: `SAFARSETU|${ticketId}|${customTicket ? customTicket.route.number : (selectedRoute?.number || 'ALL')}|${getPrice()}|${now.toISOString()}`,
     };
 
     const paymentData = {
@@ -177,8 +179,10 @@ const PaymentScreen = ({ navigation, route }) => {
       </LinearGradient>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Choose Ticket Type</Text>
-        <View style={styles.ticketTypeGrid}>
+        {!customTicket && (
+          <>
+            <Text style={styles.sectionTitle}>Choose Ticket Type</Text>
+            <View style={styles.ticketTypeGrid}>
           {TICKET_TYPES.map((type) => (
             <TouchableOpacity
               key={type.id}
@@ -239,22 +243,24 @@ const PaymentScreen = ({ navigation, route }) => {
             </ScrollView>
           </>
         )}
+        </>
+        )}
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Payment Summary</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Ticket Type</Text>
-            <Text style={styles.summaryValue}>{selectedType.name}</Text>
+            <Text style={styles.summaryValue}>{customTicket ? 'Mobile Ticket' : selectedType.name}</Text>
           </View>
-          {selectedRoute && (
+          {(selectedRoute || customTicket) && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Route</Text>
-              <Text style={styles.summaryValue}>{selectedRoute.number}</Text>
+              <Text style={styles.summaryValue}>{customTicket ? customTicket.route.number : selectedRoute.number}</Text>
             </View>
           )}
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Validity</Text>
-            <Text style={styles.summaryValue}>{selectedType.validity}</Text>
+            <Text style={styles.summaryValue}>{customTicket ? '3 hours' : selectedType.validity}</Text>
           </View>
           <View style={[styles.summaryRow, styles.summaryTotal]}>
             <Text style={styles.totalLabel}>Total Amount</Text>

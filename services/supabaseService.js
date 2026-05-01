@@ -16,8 +16,9 @@ const translateRoute = (route, index = 0) => {
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
   const distanceKm = Number(route.distance_km) || 0;
-  const defaultFare = Math.max(15, Math.round(distanceKm * 4));
+  const defaultFare = Math.max(10, Math.round(distanceKm * 4));
   const defaultPass = Math.max(200, Math.round(defaultFare * 18));
+  const computedDuration = Math.round((distanceKm / 25) * 60);
 
   return {
     id: route.id,
@@ -27,7 +28,7 @@ const translateRoute = (route, index = 0) => {
     destination: route.end_location || 'End',
     color: route.color || routeColors[index % routeColors.length],
     distance: distanceKm ? `${distanceKm} km` : 'N/A',
-    duration: route.duration || (distanceKm ? `${Math.max(15, Math.round(distanceKm * 4))} min` : '—'),
+    duration: route.duration || (distanceKm ? `${computedDuration} min` : '—'),
     fare: {
       normal: Number(route.normal_fare) || defaultFare,
       pass: Number(route.pass_fare) || defaultPass,
@@ -229,7 +230,7 @@ export const getSession = async () => {
 export const getRoutes = async () => {
   const { data, error } = await supabase
     .from('routes')
-    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`);
+    .select(`id, route_name, start_location, end_location, distance_km, route_type, vehicles(id), route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`);
   if (error) {
     return { routes: [], error };
   }
@@ -242,7 +243,7 @@ export const getRoutes = async () => {
 export const getRouteById = async (routeId) => {
   const { data, error } = await supabase
     .from('routes')
-    .select(`id, route_name, start_location, end_location, distance_km, route_type, route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`)
+    .select(`id, route_name, start_location, end_location, distance_km, route_type, vehicles(id), route_stops(id, stop_order, distance_from_prev_km, avg_travel_time_minutes, stop:stops(id, stop_name, latitude, longitude))`)
     .eq('id', routeId)
     .single();
   if (error) {

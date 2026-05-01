@@ -240,6 +240,16 @@ const RoutesScreen = ({ navigation }) => {
           }
         />
       )}
+
+      {/* Quick Access Buy Ticket Button */}
+      <TouchableOpacity 
+        style={styles.fab}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('Tickets', { screen: 'BuyMobileTicket' })}
+      >
+        <Ionicons name="ticket" size={20} color={COLORS.white} />
+        <Text style={styles.fabText}>Buy Ticket</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -333,6 +343,25 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: SPACING.xl + 60, // Above bottom tab bar
+    right: SPACING.base,
+    backgroundColor: COLORS.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: RADIUS.full,
+    gap: 8,
+    ...SHADOWS.md,
+    elevation: 5,
+  },
+  fabText: {
+    color: COLORS.white,
+    fontWeight: '700',
+    fontSize: FONTS.sizes.sm,
   },
 });
 

@@ -19,28 +19,9 @@ import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import { getLiveVehicleLocations } from '../../services/supabaseService';
 import { calculateETA, formatETA } from '../../utils/locationUtils';
 
-const generateMapHTML = (vehicles, centerLat, centerLng, userLocation) => {
-  const busMarkersJS = vehicles
-    .map(
-      (bus, index) => `
-    var marker_${index} = L.marker([${bus.location.latitude}, ${bus.location.longitude}], {icon: busIcon})
-      .addTo(map)
-      .on('click', function() {
-        window.ReactNativeWebView.postMessage(JSON.stringify({type: 'busClick', busId: '${bus.id}'}));
-      });
-    marker_${index}._busId = '${bus.id}';
-  `
-    )
-    .join('\n');
-
+const generateMapHTML = (centerLat, centerLng) => {
   const centerLatValue = centerLat || 20.0;
   const centerLngValue = centerLng || 0.0;
-
-  const userMarkerJS = userLocation ? `
-    var userMarker = L.marker([${userLocation.latitude}, ${userLocation.longitude}], {icon: userIcon})
-      .addTo(map)
-      .bindPopup('<b>Your Location</b>');
-  ` : '';
 
   return `<!DOCTYPE html>
 <html>
@@ -52,6 +33,9 @@ const generateMapHTML = (vehicles, centerLat, centerLng, userLocation) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { height: 100vh; overflow: hidden; }
     #map { width: 100%; height: 100vh; }
+    .leaflet-marker-icon {
+      transition: transform 2s linear;
+    }
   </style>
 </head>
 <body>
@@ -72,8 +56,6 @@ const generateMapHTML = (vehicles, centerLat, centerLng, userLocation) => {
       iconAnchor: [16, 16],
     });
 
-    ${busMarkersJS}
-
     var userIcon = L.divIcon({
       html: '<div style="background:#38BDF8;border-radius:50%;width:20px;height:20px;border:3px solid white;box-shadow:0 2px 8px rgba(56,189,248,0.6);"></div>',
       className: '',
@@ -81,7 +63,42 @@ const generateMapHTML = (vehicles, centerLat, centerLng, userLocation) => {
       iconAnchor: [10, 10],
     });
 
-    ${userMarkerJS}
+    var busMarkers = {};
+    function updateBuses(buses) {
+      try {
+        var currentIds = {};
+        buses.forEach(function(bus) {
+          currentIds[bus.id] = true;
+          if (busMarkers[bus.id]) {
+            busMarkers[bus.id].setLatLng([bus.location.latitude, bus.location.longitude]);
+          } else {
+            var marker = L.marker([bus.location.latitude, bus.location.longitude], {icon: busIcon})
+              .addTo(map)
+              .on('click', function() {
+                window.ReactNativeWebView.postMessage(JSON.stringify({type: 'busClick', busId: bus.id}));
+              });
+            busMarkers[bus.id] = marker;
+          }
+        });
+        for (var id in busMarkers) {
+          if (!currentIds[id]) {
+            map.removeLayer(busMarkers[id]);
+            delete busMarkers[id];
+          }
+        }
+      } catch(e) {}
+    }
+
+    var userMarker = null;
+    function updateUser(lat, lng) {
+      if (userMarker) {
+        userMarker.setLatLng([lat, lng]);
+      } else {
+        userMarker = L.marker([lat, lng], {icon: userIcon})
+          .addTo(map)
+          .bindPopup('<b>Your Location</b>');
+      }
+    }
 
     L.control.zoom({position: 'bottomright'}).addTo(map);
   </script>
@@ -142,6 +159,28 @@ const LiveMapScreen = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (webViewRef.current && buses.length > 0) {
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateBuses === 'function') {
+          updateBuses(${JSON.stringify(buses)});
+        }
+        true;
+      `);
+    }
+  }, [buses]);
+
+  useEffect(() => {
+    if (webViewRef.current && userLocation) {
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateUser === 'function') {
+          updateUser(${userLocation.latitude}, ${userLocation.longitude});
+        }
+        true;
+      `);
+    }
+  }, [userLocation]);
+
   const handleWebViewMessage = (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
@@ -156,18 +195,24 @@ const LiveMapScreen = () => {
 
   const centerOnBus = () => {
     const targetBus = selectedBus || buses[0];
-    if (targetBus) {
-      webViewRef.current?.postMessage(
-        JSON.stringify({ type: 'center', lat: targetBus.location.latitude, lng: targetBus.location.longitude, zoom: 14 })
-      );
+    if (targetBus && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (typeof map !== 'undefined') {
+          map.setView([${targetBus.location.latitude}, ${targetBus.location.longitude}], 14);
+        }
+        true;
+      `);
     }
   };
 
   const centerOnUser = () => {
-    if (userLocation) {
-      webViewRef.current?.postMessage(
-        JSON.stringify({ type: 'center', lat: userLocation.latitude, lng: userLocation.longitude, zoom: 14 })
-      );
+    if (userLocation && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (typeof map !== 'undefined') {
+          map.setView([${userLocation.latitude}, ${userLocation.longitude}], 14);
+        }
+        true;
+      `);
     }
   };
 
@@ -195,6 +240,7 @@ const LiveMapScreen = () => {
 
   const centerLat = userLocation?.latitude || buses[0]?.location.latitude || JAMMU_LAT;
   const centerLng = userLocation?.longitude || buses[0]?.location.longitude || JAMMU_LNG;
+  const mapHtml = useRef(generateMapHTML(centerLat, centerLng)).current;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}> 
@@ -213,7 +259,7 @@ const LiveMapScreen = () => {
 
       <WebView
         ref={webViewRef}
-        source={{ html: generateMapHTML(buses, centerLat, centerLng, userLocation) }}
+        source={{ html: mapHtml }}
         style={styles.map}
         onMessage={handleWebViewMessage}
         javaScriptEnabled

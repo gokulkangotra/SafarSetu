@@ -5,9 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS, RADIUS, SPACING } from '../../constants/theme';
 import { getRouteVehicles, subscribeToVehicleLocations } from '../../services/supabaseService';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
-const generateRouteMapHTML = (routeData, vehicles = []) => {
+const generateRouteMapHTML = (routeData) => {
   const validStops = (routeData.stops || []).filter(s => s.latitude && s.longitude);
   const routeColor = routeData.color || '#1E3A8A';
 
@@ -28,31 +28,11 @@ const generateRouteMapHTML = (routeData, vehicles = []) => {
         iconAnchor: [10, 10]
       });
       L.marker([${stop.latitude}, ${stop.longitude}], {icon: icon_${index}})
-        .bindPopup('<b>${stop.name}</b>')
+        .bindPopup('<b>${stop.name.replace(/'/g, "\\'")}</b>')
         .addTo(map);
     `;
   }).join('\n');
   
-  const vehicleMarkersJS = (vehicles || []).map((v) => {
-    if (!v.location?.latitude || !v.location?.longitude) return '';
-    const iconHtml = `
-      <div style="background:${COLORS.secondary};border-radius:50%;width:32px;height:32px;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
-        <span style="color:white;font-size:16px;">🚌</span>
-      </div>
-    `;
-    return `
-      var vIcon_${v.id.replace(/-/g, '')} = L.divIcon({
-        html: '${iconHtml.replace(/\n/g, '')}',
-        className: '',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
-      });
-      L.marker([${v.location.latitude}, ${v.location.longitude}], {icon: vIcon_${v.id.replace(/-/g, '')}})
-        .bindPopup('<b>Bus ${v.number}</b><br/>Speed: ${v.speed} km/h')
-        .addTo(map);
-    `;
-  }).join('\n');
-
   const polylinePointsJS = validStops.map(stop => `[${stop.latitude}, ${stop.longitude}]`).join(',');
 
   return `<!DOCTYPE html>
@@ -65,6 +45,9 @@ const generateRouteMapHTML = (routeData, vehicles = []) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { height: 100vh; overflow: hidden; font-family: sans-serif; }
     #map { width: 100%; height: 100vh; }
+    .leaflet-marker-icon {
+      transition: transform 2s linear;
+    }
   </style>
 </head>
 <body>
@@ -111,7 +94,41 @@ const generateRouteMapHTML = (routeData, vehicles = []) => {
     }
 
     ${markersJS}
-    ${vehicleMarkersJS}
+
+    var vehicleMarkers = {};
+    function updateVehicles(vehicles) {
+      try {
+        var currentIds = {};
+        vehicles.forEach(function(v) {
+          if (!v.location || !v.location.latitude || !v.location.longitude) return;
+          currentIds[v.id] = true;
+          
+          if (vehicleMarkers[v.id]) {
+            vehicleMarkers[v.id].setLatLng([v.location.latitude, v.location.longitude]);
+            vehicleMarkers[v.id].getPopup().setContent('<b>Bus ' + v.number + '</b><br/>Speed: ' + v.speed + ' km/h');
+          } else {
+            var iconHtml = '<div style="background:#38BDF8;border-radius:50%;width:32px;height:32px;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;"><span style="color:white;font-size:16px;">🚌</span></div>';
+            var vIcon = L.divIcon({
+              html: iconHtml,
+              className: '',
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
+            });
+            var marker = L.marker([v.location.latitude, v.location.longitude], {icon: vIcon})
+              .bindPopup('<b>Bus ' + v.number + '</b><br/>Speed: ' + v.speed + ' km/h')
+              .addTo(map);
+            vehicleMarkers[v.id] = marker;
+          }
+        });
+        
+        for (var id in vehicleMarkers) {
+          if (!currentIds[id]) {
+            map.removeLayer(vehicleMarkers[id]);
+            delete vehicleMarkers[id];
+          }
+        }
+      } catch(e) {}
+    }
 
     L.control.zoom({position: 'bottomright'}).addTo(map);
   </script>
@@ -124,6 +141,19 @@ const RouteMapScreen = ({ navigation, route }) => {
   const routeData = route.params?.route;
   const [vehicles, setVehicles] = useState([]);
   const webViewRef = useRef(null);
+  
+  const mapHtml = useMemo(() => routeData ? generateRouteMapHTML(routeData) : '', [routeData]);
+
+  useEffect(() => {
+    if (vehicles.length > 0 && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (typeof updateVehicles === 'function') {
+          updateVehicles(${JSON.stringify(vehicles)});
+        }
+        true;
+      `);
+    }
+  }, [vehicles]);
 
   useEffect(() => {
     let subscription = null;
@@ -164,7 +194,7 @@ const RouteMapScreen = ({ navigation, route }) => {
       <StatusBar barStyle="dark-content" />
       <WebView
         ref={webViewRef}
-        source={{ html: generateRouteMapHTML(routeData, vehicles) }}
+        source={{ html: mapHtml }}
         style={styles.map}
         javaScriptEnabled
         domStorageEnabled
