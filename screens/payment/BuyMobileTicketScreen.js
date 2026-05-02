@@ -4,17 +4,21 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   FlatList,
   ActivityIndicator,
-  Alert
+  Alert,
+  StatusBar
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getRoutes } from '../../services/supabaseService';
-import { COLORS, FONTS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
+import GradientButton from '../../components/GradientButton';
 
 const BuyMobileTicketScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -42,11 +46,8 @@ const BuyMobileTicketScreen = ({ navigation }) => {
       return;
     }
 
-    // Calculate distance
     const stops = selectedRoute.stops || [];
     let distance = 0;
-    
-    // Sort stops just to be sure
     const sortedStops = [...stops].sort((a,b) => a.order - b.order);
     
     let counting = false;
@@ -77,10 +78,13 @@ const BuyMobileTicketScreen = ({ navigation }) => {
 
   const renderPickerItem = ({ item }) => {
     let label = '';
+    let icon = '';
     if (pickerType === 'route') {
-      label = `Route ${item.number} - ${item.name}`;
+      label = `Route ${item.number}_ ${item.source} to ${item.destination}`;
+      icon = 'bus-outline';
     } else {
       label = item.name;
+      icon = 'location-outline';
     }
 
     return (
@@ -93,7 +97,6 @@ const BuyMobileTicketScreen = ({ navigation }) => {
             setEndStop(null);
           } else if (pickerType === 'start') {
             setStartStop(item);
-            // Reset end stop if it is before start stop
             if (endStop && endStop.order <= item.order) {
               setEndStop(null);
             }
@@ -103,6 +106,9 @@ const BuyMobileTicketScreen = ({ navigation }) => {
           setPickerVisible(false);
         }}
       >
+        <View style={styles.pickerItemIconBox}>
+          <Ionicons name={icon} size={20} color={COLORS.primary} />
+        </View>
         <Text style={styles.pickerItemText}>{label}</Text>
       </TouchableOpacity>
     );
@@ -115,11 +121,9 @@ const BuyMobileTicketScreen = ({ navigation }) => {
     const stops = [...(selectedRoute.stops || [])].sort((a,b) => a.order - b.order);
     
     if (pickerType === 'start') {
-      // Cannot select the very last stop as start stop
       return stops.slice(0, stops.length - 1);
     }
     if (pickerType === 'end') {
-      // Only show stops AFTER the start stop
       if (!startStop) return stops;
       return stops.filter(s => s.order > startStop.order);
     }
@@ -140,50 +144,98 @@ const BuyMobileTicketScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Select Trip</Text>
-      </View>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      
+      <LinearGradient
+        colors={COLORS.gradientPrimary}
+        style={styles.header}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Select Trip</Text>
+          <View style={{ width: 24 }} />
+        </View>
+      </LinearGradient>
 
       {loading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color="#FF7F00" />
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loaderText}>Loading routes...</Text>
         </View>
       ) : (
         <View style={styles.content}>
-          <TouchableOpacity 
-            style={styles.inputContainer} 
-            onPress={() => openPicker('route')}
-          >
-            <Text style={[styles.inputText, !selectedRoute && styles.placeholderText]}>
-              {selectedRoute ? `Route ${selectedRoute.number}` : 'Enter route number'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Plan Your Journey</Text>
+          
+          <View style={styles.card}>
+            <TouchableOpacity 
+              style={styles.inputContainer} 
+              onPress={() => openPicker('route')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.inputIconBox}>
+                <Ionicons name="bus" size={20} color={selectedRoute ? COLORS.primary : COLORS.textLight} />
+              </View>
+              <View style={styles.inputTextContainer}>
+                <Text style={styles.inputLabel}>Route</Text>
+                <Text style={[styles.inputText, !selectedRoute && styles.placeholderText]}>
+                  {selectedRoute ? `Route ${selectedRoute.number}_ ${selectedRoute.source} to ${selectedRoute.destination}` : 'Select a route'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-down" size={20} color={COLORS.textLight} />
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.inputContainer} 
-            onPress={() => openPicker('start')}
-          >
-            <Text style={[styles.inputText, !startStop && styles.placeholderText]}>
-              {startStop ? startStop.name : 'Enter start stop'}
-            </Text>
-          </TouchableOpacity>
+            <View style={styles.divider} />
 
-          <TouchableOpacity 
-            style={styles.inputContainer} 
-            onPress={() => openPicker('end')}
-          >
-            <Text style={[styles.inputText, !endStop && styles.placeholderText]}>
-              {endStop ? endStop.name : 'Enter end stop'}
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.inputContainer} 
+              onPress={() => openPicker('start')}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.inputIconBox, { backgroundColor: COLORS.success + '15' }]}>
+                <Ionicons name="location" size={20} color={startStop ? COLORS.success : COLORS.textLight} />
+              </View>
+              <View style={styles.inputTextContainer}>
+                <Text style={styles.inputLabel}>From</Text>
+                <Text style={[styles.inputText, !startStop && styles.placeholderText]}>
+                  {startStop ? startStop.name : 'Select start stop'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-down" size={20} color={COLORS.textLight} />
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-            <Text style={styles.nextButtonText}>NEXT</Text>
-          </TouchableOpacity>
+            <View style={styles.timelineLine} />
+            <View style={styles.divider} />
+
+            <TouchableOpacity 
+              style={styles.inputContainer} 
+              onPress={() => openPicker('end')}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.inputIconBox, { backgroundColor: COLORS.secondary + '15' }]}>
+                <Ionicons name="location" size={20} color={endStop ? COLORS.secondary : COLORS.textLight} />
+              </View>
+              <View style={styles.inputTextContainer}>
+                <Text style={styles.inputLabel}>To</Text>
+                <Text style={[styles.inputText, !endStop && styles.placeholderText]}>
+                  {endStop ? endStop.name : 'Select end stop'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-down" size={20} color={COLORS.textLight} />
+            </TouchableOpacity>
+          </View>
+
+          <GradientButton 
+            title="Continue to Payment" 
+            onPress={handleNext}
+            size="lg"
+            style={styles.nextButton}
+            disabled={!selectedRoute || !startStop || !endStop}
+          />
         </View>
       )}
 
@@ -195,7 +247,7 @@ const BuyMobileTicketScreen = ({ navigation }) => {
               <Text style={styles.modalTitle}>
                 {pickerType === 'route' ? 'Select Route' : pickerType === 'start' ? 'Select Start Stop' : 'Select End Stop'}
               </Text>
-              <TouchableOpacity onPress={() => setPickerVisible(false)}>
+              <TouchableOpacity onPress={() => setPickerVisible(false)} style={styles.closeButton}>
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
             </View>
@@ -204,98 +256,174 @@ const BuyMobileTicketScreen = ({ navigation }) => {
               keyExtractor={item => item.id}
               renderItem={renderPickerItem}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
+              contentContainerStyle={{ paddingBottom: insets.bottom + SPACING.xl }}
+              showsVerticalScrollIndicator={false}
             />
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.background,
   },
   header: {
+    paddingHorizontal: SPACING.base,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xl,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  backButton: {
-    marginRight: 16,
+    justifyContent: 'space-between',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000000',
+    fontSize: FONTS.sizes.lg,
+    fontWeight: '700',
+    color: COLORS.white,
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loaderText: {
+    marginTop: SPACING.md,
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
   },
   content: {
-    padding: 24,
+    padding: SPACING.base,
+  },
+  sectionTitle: {
+    fontSize: FONTS.sizes.base,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.md,
+  },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.md,
+    ...SHADOWS.md,
+    marginBottom: SPACING.xl,
+    position: 'relative',
   },
   inputContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-    paddingVertical: 16,
-    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  inputIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.primary + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  inputTextContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  inputLabel: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textLight,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   inputText: {
-    fontSize: 16,
-    color: '#000000',
+    fontSize: FONTS.sizes.sm,
+    fontWeight: '600',
+    color: COLORS.text,
   },
   placeholderText: {
-    color: '#A0A0A0',
+    color: COLORS.textLight,
+    fontWeight: '400',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginVertical: SPACING.xs,
+    marginLeft: 56, // Align with text
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 36, // 16 padding + 20 half of icon box
+    top: 130, // roughly between start and end stop icons
+    width: 2,
+    height: 30,
+    backgroundColor: COLORS.border,
+    borderStyle: 'dashed',
+    zIndex: -1,
   },
   nextButton: {
-    backgroundColor: '#FF7A00',
-    borderRadius: 4,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  nextButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 1,
+    marginTop: SPACING.sm,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: COLORS.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xxl,
+    borderTopRightRadius: RADIUS.xxl,
     maxHeight: '80%',
-    paddingBottom: 40,
+    paddingTop: SPACING.md,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 20,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: COLORS.border,
   },
   modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: FONTS.sizes.md,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.background,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pickerItem: {
-    padding: 16,
-    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+  },
+  pickerItemIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary + '10',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
   },
   pickerItemText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: FONTS.sizes.sm,
+    fontWeight: '600',
+    color: COLORS.text,
   },
   separator: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: COLORS.border,
+    marginLeft: SPACING.xl + 36 + SPACING.md,
   }
 });
 

@@ -7,6 +7,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../constants/theme';
 import { getRouteVehicles } from '../services/supabaseService';
 import { getDistance, formatDistance, calculateETA, formatETA } from '../utils/locationUtils';
+import { useUserPreferences } from '../context/UserPreferencesContext';
 
 const RouteIcon = ({ size, color }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -21,9 +22,13 @@ const RouteIcon = ({ size, color }) => (
 );
 
 const RouteCard = ({ route, onPress, onMapPress, matchedStop }) => {
+  const { toggleSaveRoute, toggleNotifyRoute, isRouteSaved, isRouteNotified } = useUserPreferences();
   const [nearestBusDist, setNearestBusDist] = useState(null);
   const [nearestBusETA, setNearestBusETA] = useState(null);
   const [isLocating, setIsLocating] = useState(false);
+
+  const isSaved = isRouteSaved(route.id);
+  const isNotified = isRouteNotified(route.id);
 
   useEffect(() => {
     if (matchedStop) {
@@ -97,9 +102,6 @@ const RouteCard = ({ route, onPress, onMapPress, matchedStop }) => {
             <MaterialCommunityIcons name="bus" size={13} color={COLORS.textSecondary} />
             <Text style={styles.metaText}>{route.vehicles?.length || 0} vehicles</Text>
           </View>
-          <View style={styles.fareTag}>
-            <Text style={styles.fareText}>₹{route.fare?.normal}</Text>
-          </View>
         </View>
 
         {/* Dynamic CTA for matched Stop */}
@@ -126,10 +128,26 @@ const RouteCard = ({ route, onPress, onMapPress, matchedStop }) => {
 
       {/* Actions */}
       <View style={styles.cardActions}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity 
+            style={styles.actionIconBtn} 
+            onPress={(e) => { e.stopPropagation(); toggleSaveRoute(route.id); }}
+          >
+            <Ionicons name={isSaved ? "heart" : "heart-outline"} size={20} color={isSaved ? COLORS.error : COLORS.textSecondary} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionIconBtn} 
+            onPress={(e) => { e.stopPropagation(); toggleNotifyRoute(route.id); }}
+          >
+            <Ionicons name={isNotified ? "notifications" : "notifications-outline"} size={20} color={isNotified ? COLORS.secondary : COLORS.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
         {onMapPress && (
           <TouchableOpacity 
             style={styles.mapIconBtn} 
-            onPress={onMapPress}
+            onPress={(e) => { e.stopPropagation(); onMapPress(); }}
             activeOpacity={0.7}
           >
             <RouteIcon size={18} color={COLORS.primary} />
@@ -224,22 +242,21 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSecondary,
   },
-  fareTag: {
-    backgroundColor: COLORS.primary + '15',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: RADIUS.full,
-    marginLeft: 'auto',
-  },
-  fareText: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
+
   cardActions: {
     alignItems: 'center',
     marginLeft: SPACING.sm,
     gap: 8,
+  },
+  actionIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   mapIconBtn: {
     width: 32,
@@ -250,6 +267,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   arrow: {
+    marginLeft: 12,
   },
   stopMatchBanner: {
     marginTop: 12,

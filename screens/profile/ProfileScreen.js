@@ -1,4 +1,4 @@
-﻿// ProfileScreen.js — User profile with Supabase-backed tickets and profile details
+// ProfileScreen.js — User profile with Supabase-backed tickets and profile details
 
 import React, { useState } from 'react';
 import {
@@ -21,11 +21,13 @@ import TicketCard from '../../components/TicketCard';
 import { SafarSetuIcon } from '../../components/SafarSetuLogo';
 import { useAuth } from '../../context/AuthContext';
 import { useTickets } from '../../context/TicketContext';
+import { useUserPreferences } from '../../context/UserPreferencesContext';
 
 const ProfileScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { user, logout, updateUser } = useAuth();
   const { tickets } = useTickets();
+  const { savedRoutes, notificationRoutes, notificationHistory } = useUserPreferences();
 
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState(user?.name || '');
@@ -67,8 +69,8 @@ const ProfileScreen = ({ navigation }) => {
     {
       icon: 'heart-outline',
       label: 'Saved Routes',
-      count: 0,
-      onPress: () => {},
+      count: savedRoutes.length,
+      onPress: () => navigation.navigate('SavedRoutes'),
     },
     {
       icon: 'card-outline',
@@ -79,20 +81,20 @@ const ProfileScreen = ({ navigation }) => {
     {
       icon: 'notifications-outline',
       label: 'Notifications',
-      count: null,
-      onPress: () => {},
+      count: notificationHistory.length,
+      onPress: () => navigation.navigate('NotificationInbox'),
     },
     {
       icon: 'help-circle-outline',
       label: 'Help & Support',
       count: null,
-      onPress: () => {},
+      onPress: () => navigation.navigate('HelpSupport'),
     },
     {
       icon: 'information-circle-outline',
       label: 'About SafarSetu',
       count: null,
-      onPress: () => {},
+      onPress: () => navigation.navigate('About'),
     },
   ];
 

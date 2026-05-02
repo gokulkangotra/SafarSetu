@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TicketProvider } from './context/TicketContext';
+import { UserPreferencesProvider } from './context/UserPreferencesContext';
 import AuthNavigator from './navigation/AuthNavigator';
 import AppNavigator from './navigation/AppNavigator';
 import { FullScreenLoader } from './components/LoadingSpinner';
@@ -31,10 +32,12 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <TicketProvider>
-          <NavigationContainer linking={linking}>
-            <StatusBar style="auto" />
-            <RootNavigator />
-          </NavigationContainer>
+          <UserPreferencesProvider>
+            <NavigationContainer linking={linking}>
+              <StatusBar style="auto" />
+              <RootNavigator />
+            </NavigationContainer>
+          </UserPreferencesProvider>
         </TicketProvider>
       </AuthProvider>
     </SafeAreaProvider>

@@ -13,12 +13,18 @@ import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentHistoryScreen from '../screens/payment/PaymentHistoryScreen';
 import BuyMobileTicketScreen from '../screens/payment/BuyMobileTicketScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import SavedRoutesScreen from '../screens/profile/SavedRoutesScreen';
+import HelpSupportScreen from '../screens/profile/HelpSupportScreen';
+import AboutScreen from '../screens/profile/AboutScreen';
+import NotificationInboxScreen from '../screens/profile/NotificationInboxScreen';
+import { useUserPreferences } from '../context/UserPreferencesContext';
 
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 
 const Tab = createBottomTabNavigator();
 const RoutesStack = createStackNavigator();
 const PaymentStack = createStackNavigator();
+const ProfileStack = createStackNavigator();
 
 // --- Stacks ---
 
@@ -36,6 +42,16 @@ const PaymentStackNav = () => (
     <PaymentStack.Screen name="Payment" component={PaymentScreen} />
     <PaymentStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
   </PaymentStack.Navigator>
+);
+
+const ProfileStackNav = () => (
+  <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+    <ProfileStack.Screen name="SavedRoutes" component={SavedRoutesScreen} />
+    <ProfileStack.Screen name="NotificationInbox" component={NotificationInboxScreen} />
+    <ProfileStack.Screen name="HelpSupport" component={HelpSupportScreen} />
+    <ProfileStack.Screen name="About" component={AboutScreen} />
+  </ProfileStack.Navigator>
 );
 
 // --- Custom Tab Bar Label ---
@@ -116,7 +132,7 @@ const AppNavigator = () => (
     />
     <Tab.Screen
       name="Profile"
-      component={ProfileScreen}
+      component={ProfileStackNav}
       options={{
         tabBarLabel: ({ focused }) => <TabLabel label="Profile" focused={focused} />,
         tabBarIcon: ({ focused }) => (
