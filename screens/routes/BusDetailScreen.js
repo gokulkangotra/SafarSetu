@@ -13,8 +13,8 @@ const BusDetailScreen = ({ navigation, route }) => {
   const [vehicle, setVehicle] = useState(initialVehicle);
   const [etaData, setEtaData] = useState([]);
 
-  const direction = vehicle.direction || 'forward';
-  const orderedStops = getOrderedStops(routeData.stops, direction);
+  const direction = vehicle.direction || 'onward';
+  const orderedStops = React.useMemo(() => getOrderedStops(routeData.stops, direction), [routeData.stops, direction]);
   const sourceStop = orderedStops[0];
   const destStop = orderedStops[orderedStops.length - 1];
 

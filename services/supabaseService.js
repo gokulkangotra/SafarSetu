@@ -343,7 +343,7 @@ export const getRouteVehicles = async (routeId) => {
         longitude: Number(location.longitude) || 0,
       },
       tripId: trip?.id,
-      direction: trip?.direction || 'forward',
+      direction: trip?.direction || 'onward',
     };
   });
 
@@ -353,8 +353,9 @@ export const getRouteVehicles = async (routeId) => {
 export const subscribeToVehicleLocations = (vehicleIds, onUpdate) => {
   if (!vehicleIds || vehicleIds.length === 0) return null;
 
+  const channelName = `public:vehicle_locations:${Date.now()}_${Math.random()}`;
   return supabase
-    .channel('public:vehicle_locations')
+    .channel(channelName)
     .on(
       'postgres_changes',
       {

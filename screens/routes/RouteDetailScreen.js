@@ -134,7 +134,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
     const approachingVehicles = routeVehicles.map(v => {
       if (!v.location?.latitude || !v.location?.longitude) return null;
       
-      const direction = v.direction || 'forward';
+      const direction = v.direction || 'onward';
       const orderedStops = getOrderedStops(routeData.stops, direction);
       
       const nextStopIndex = getVehicleNextStopIndex(v, orderedStops);
@@ -192,7 +192,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
   };
 
   const getBusesOnSegment = (index) => {
-     const sortedStops = getOrderedStops(routeData.stops, 'forward');
+     const sortedStops = getOrderedStops(routeData.stops, 'onward');
      const stopCurrent = sortedStops[index];
      const stopNext = sortedStops[index + 1];
      if (!stopNext || !routeVehicles) return [];
@@ -200,9 +200,9 @@ const RouteDetailScreen = ({ navigation, route }) => {
      return routeVehicles.map(v => {
          if (!v.location?.latitude || !v.location?.longitude) return null;
          
-         const direction = v.direction || 'forward';
+         const direction = v.direction || 'onward';
          // We only show buses on the forward path timeline if they are traveling forward
-         if (direction !== 'forward') return null;
+         if (direction !== 'onward' && direction !== 'forward') return null;
 
          const orderedStops = getOrderedStops(routeData.stops, direction);
          const nextStopIndex = getVehicleNextStopIndex(v, orderedStops);
@@ -300,7 +300,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
         {activeTab === TAB.STOPS && (
           <View>
             <Text style={styles.sectionTitle}>{routeData.stops?.length || 0} Stops</Text>
-            {getOrderedStops(routeData.stops, 'forward').map((stop, index, sortedStops) => {
+            {getOrderedStops(routeData.stops, 'onward').map((stop, index, sortedStops) => {
               const isNearest = stop.id === nearestStopId;
               return (
               <View key={stop.id || `${index}`} style={styles.stopRow}>
@@ -354,7 +354,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
               </View>
             ) : null}
             {routeVehicles.map((vehicle) => {
-              const direction = vehicle.direction || 'forward';
+              const direction = vehicle.direction || 'onward';
               const orderedStops = getOrderedStops(routeData.stops, direction);
               const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
               const nextStop = nextStopIndex < orderedStops.length ? orderedStops[nextStopIndex] : null;

@@ -33,9 +33,6 @@ const generateMapHTML = (centerLat, centerLng) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { height: 100vh; overflow: hidden; }
     #map { width: 100%; height: 100vh; }
-    .leaflet-marker-icon {
-      transition: transform 2s linear;
-    }
   </style>
 </head>
 <body>
@@ -63,6 +60,22 @@ const generateMapHTML = (centerLat, centerLng) => {
       iconAnchor: [10, 10],
     });
 
+    function slideMarkerTo(marker, endLat, endLng, duration) {
+      var startLatLng = marker.getLatLng();
+      var start = performance.now();
+      function animate(time) {
+        var fraction = (time - start) / duration;
+        if (fraction > 1) fraction = 1;
+        var lat = startLatLng.lat + (endLat - startLatLng.lat) * fraction;
+        var lng = startLatLng.lng + (endLng - startLatLng.lng) * fraction;
+        marker.setLatLng([lat, lng]);
+        if (fraction < 1) {
+          requestAnimationFrame(animate);
+        }
+      }
+      requestAnimationFrame(animate);
+    }
+
     var busMarkers = {};
     function updateBuses(buses) {
       try {
@@ -70,7 +83,7 @@ const generateMapHTML = (centerLat, centerLng) => {
         buses.forEach(function(bus) {
           currentIds[bus.id] = true;
           if (busMarkers[bus.id]) {
-            busMarkers[bus.id].setLatLng([bus.location.latitude, bus.location.longitude]);
+            slideMarkerTo(busMarkers[bus.id], bus.location.latitude, bus.location.longitude, 2000);
           } else {
             var marker = L.marker([bus.location.latitude, bus.location.longitude], {icon: busIcon})
               .addTo(map)

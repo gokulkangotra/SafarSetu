@@ -93,6 +93,21 @@ const generateRouteMapHTML = (routeData) => {
     ${markersJS}
 
     var vehicleMarkers = {};
+    
+    function slideMarkerTo(marker, endLat, endLng, duration) {
+      var startLatLng = marker.getLatLng();
+      var start = performance.now();
+      function animate(time) {
+        var fraction = (time - start) / duration;
+        if (fraction > 1) fraction = 1;
+        var lat = startLatLng.lat + (endLat - startLatLng.lat) * fraction;
+        var lng = startLatLng.lng + (endLng - startLatLng.lng) * fraction;
+        marker.setLatLng([lat, lng]);
+        if (fraction < 1) requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+    }
+
     function updateVehicles(vehicles) {
       try {
         var currentIds = {};
@@ -101,7 +116,7 @@ const generateRouteMapHTML = (routeData) => {
           currentIds[v.id] = true;
           
           if (vehicleMarkers[v.id]) {
-            vehicleMarkers[v.id].setLatLng([v.location.latitude, v.location.longitude]);
+            slideMarkerTo(vehicleMarkers[v.id], v.location.latitude, v.location.longitude, 2000);
             vehicleMarkers[v.id].getPopup().setContent('<b>Bus ' + v.number + '</b><br/>Speed: ' + v.speed + ' km/h');
           } else {
             var iconHtml = '<div style="background:#38BDF8;border-radius:50%;width:32px;height:32px;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;"><span style="color:white;font-size:16px;">🚌</span></div>';

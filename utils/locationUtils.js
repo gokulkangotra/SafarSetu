@@ -49,10 +49,10 @@ export const formatETA = (durationMins) => {
   return `${roundedMins} mins`;
 };
 
-export const getOrderedStops = (stops, direction = 'forward') => {
+export const getOrderedStops = (stops, direction = 'onward') => {
   if (!stops) return [];
   const sorted = [...stops].sort((a,b) => (a.order || 0) - (b.order || 0));
-  if (direction === 'reverse') {
+  if (direction === 'return' || direction === 'reverse') {
     return sorted.reverse();
   }
   return sorted;
