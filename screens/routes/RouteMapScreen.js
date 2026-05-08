@@ -45,9 +45,6 @@ const generateRouteMapHTML = (routeData) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { height: 100vh; overflow: hidden; font-family: sans-serif; }
     #map { width: 100%; height: 100vh; }
-    .leaflet-marker-icon {
-      transition: transform 2s linear;
-    }
   </style>
 </head>
 <body>

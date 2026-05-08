@@ -1,6 +1,6 @@
 // RouteDetailScreen.js — Detailed route view with Supabase live vehicles
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,9 +17,52 @@ import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import GradientButton from '../../components/GradientButton';
 import { getRouteVehicles, subscribeToVehicleLocations } from '../../services/supabaseService';
 import * as Location from 'expo-location';
-import { calculateETA, formatETA, formatDistance } from '../../utils/locationUtils';
+import { calculateETA, formatETA, formatDistance, getDistance, getOrderedStops, getVehicleNextStopIndex } from '../../utils/locationUtils';
 
 const TAB = { STOPS: 'stops', VEHICLES: 'vehicles', INFO: 'info' };
+
+
+
+const BusTimelineIcon = ({ progress }) => {
+  const animatedTop = useRef(new Animated.Value(progress)).current;
+
+  useEffect(() => {
+    Animated.timing(animatedTop, {
+      toValue: progress,
+      duration: 1000,
+      useNativeDriver: false,
+    }).start();
+  }, [progress]);
+
+  const topStyle = animatedTop.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  return (
+    <Animated.View style={[{
+      position: 'absolute',
+      left: -11,
+      width: 24,
+      height: 24,
+      backgroundColor: '#38BDF8',
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: '#FFF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 10,
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 3,
+      top: topStyle,
+    }]}>
+      <Text style={{ fontSize: 12, lineHeight: 14 }}>🚌</Text>
+    </Animated.View>
+  );
+};
 
 const RouteDetailScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
@@ -26,6 +70,17 @@ const RouteDetailScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState(TAB.STOPS);
   const [routeVehicles, setRouteVehicles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation(location.coords);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let subscription = null;
@@ -75,47 +130,24 @@ const RouteDetailScreen = ({ navigation, route }) => {
 
   const renderStopEta = (stop) => {
     if (!routeVehicles || routeVehicles.length === 0) return null;
-    
-    const sortedStops = [...(routeData.stops || [])].sort((a,b) => (a.order || 0) - (b.order || 0));
 
     const approachingVehicles = routeVehicles.map(v => {
       if (!v.location?.latitude || !v.location?.longitude) return null;
       
-      let closestStop = null;
-      let minDistance = Infinity;
+      const direction = v.direction || 'forward';
+      const orderedStops = getOrderedStops(routeData.stops, direction);
       
-      sortedStops.forEach((s) => {
-        const d = calculateETA(v.location.latitude, v.location.longitude, s.latitude, s.longitude, v.speed || 25).distanceKm;
-        if (d < minDistance) {
-            minDistance = d;
-            closestStop = s;
-        }
-      });
+      const nextStopIndex = getVehicleNextStopIndex(v, orderedStops);
+      if (nextStopIndex >= orderedStops.length) return null;
       
-      if (!closestStop) return null;
+      const nextStop = orderedStops[nextStopIndex];
+      const destStop = orderedStops[orderedStops.length - 1];
       
-      if (stop.order < closestStop.order) {
-        return null;
+      if (nextStop.id === stop.id) {
+        return { ...v, destinationName: destStop.name };
       }
-      
-      let totalDistance = minDistance;
-      let totalMins = calculateETA(v.location.latitude, v.location.longitude, closestStop.latitude, closestStop.longitude, v.speed || 25).durationMins;
-      
-      for (let i = 0; i < sortedStops.length; i++) {
-         const currentS = sortedStops[i];
-         if (currentS.order > closestStop.order && currentS.order <= stop.order) {
-             // Use fallback calculation if db fields are missing
-             const distanceSegment = currentS.distanceFromPrevKm || 0;
-             const timeSegment = currentS.avgTravelTimeMinutes || (distanceSegment > 0 ? (distanceSegment / (v.speed || 25)) * 60 : 0);
-             totalDistance += distanceSegment;
-             totalMins += timeSegment;
-         }
-      }
-      
-      return { ...v, distanceKm: totalDistance, durationMins: totalMins };
-    }).filter(v => v !== null)
-      .sort((a, b) => a.distanceKm - b.distanceKm)
-      .slice(0, 2);
+      return null;
+    }).filter(v => v !== null);
 
     if (approachingVehicles.length === 0) return null;
 
@@ -123,15 +155,31 @@ const RouteDetailScreen = ({ navigation, route }) => {
       <View style={styles.stopEtaContainer}>
         {approachingVehicles.map(v => (
           <View key={v.id} style={styles.stopEtaRow}>
-            <MaterialCommunityIcons name="bus-clock" size={14} color={COLORS.secondary} />
+            <MaterialCommunityIcons name="bus-side" size={14} color={COLORS.secondary} />
             <Text style={styles.stopEtaText}>
-              <Text style={{fontWeight: '700'}}>Bus {v.number}</Text> • {formatETA(v.durationMins)} ({formatDistance(v.distanceKm)})
+              <Text style={{fontWeight: '700'}}>Bus {v.number}</Text> <Ionicons name="arrow-forward" size={12} color={COLORS.textSecondary} /> {v.destinationName}
             </Text>
           </View>
         ))}
       </View>
     );
   };
+
+  const getNearestStopId = () => {
+    if (!userLocation || !routeData?.stops) return null;
+    let minDistance = Infinity;
+    let nearestId = null;
+    routeData.stops.forEach((s) => {
+      const d = getDistance(userLocation.latitude, userLocation.longitude, s.latitude, s.longitude);
+      if (d !== null && d < minDistance) {
+        minDistance = d;
+        nearestId = s.id;
+      }
+    });
+    return nearestId;
+  };
+
+  const nearestStopId = getNearestStopId();
 
   const OccupancyBar = ({ value, total }) => {
     const pct = total > 0 ? (value / total) * 100 : 0;
@@ -141,6 +189,33 @@ const RouteDetailScreen = ({ navigation, route }) => {
         <View style={[styles.occFill, { width: `${pct}%`, backgroundColor: color }]} />
       </View>
     );
+  };
+
+  const getBusesOnSegment = (index) => {
+     const sortedStops = getOrderedStops(routeData.stops, 'forward');
+     const stopCurrent = sortedStops[index];
+     const stopNext = sortedStops[index + 1];
+     if (!stopNext || !routeVehicles) return [];
+
+     return routeVehicles.map(v => {
+         if (!v.location?.latitude || !v.location?.longitude) return null;
+         
+         const direction = v.direction || 'forward';
+         // We only show buses on the forward path timeline if they are traveling forward
+         if (direction !== 'forward') return null;
+
+         const orderedStops = getOrderedStops(routeData.stops, direction);
+         const nextStopIndex = getVehicleNextStopIndex(v, orderedStops);
+         
+         if (nextStopIndex === index + 1) {
+             const segmentDist = getDistance(stopCurrent.latitude, stopCurrent.longitude, stopNext.latitude, stopNext.longitude);
+             const distToNext = getDistance(v.location.latitude, v.location.longitude, stopNext.latitude, stopNext.longitude);
+             let progress = segmentDist > 0 ? (segmentDist - distToNext) / segmentDist : 0;
+             progress = Math.max(0, Math.min(1, progress));
+             return { ...v, progress };
+         }
+         return null;
+     }).filter(Boolean);
   };
 
   return (
@@ -225,27 +300,45 @@ const RouteDetailScreen = ({ navigation, route }) => {
         {activeTab === TAB.STOPS && (
           <View>
             <Text style={styles.sectionTitle}>{routeData.stops?.length || 0} Stops</Text>
-            {(routeData.stops || []).map((stop, index) => (
+            {getOrderedStops(routeData.stops, 'forward').map((stop, index, sortedStops) => {
+              const isNearest = stop.id === nearestStopId;
+              return (
               <View key={stop.id || `${index}`} style={styles.stopRow}>
                 <View style={styles.timeline}>
                   <View
                     style={[
                       styles.stopDot,
                       index === 0 && styles.stopDotFirst,
-                      index === (routeData.stops?.length || 0) - 1 && styles.stopDotLast,
+                      index === sortedStops.length - 1 && styles.stopDotLast,
                     ]}
                   />
-                  {index < (routeData.stops?.length || 0) - 1 && <View style={styles.stopLine} />}
+                  {index < sortedStops.length - 1 && (
+                     <View style={styles.stopLine}>
+                        {getBusesOnSegment(index).map(v => (
+                           <BusTimelineIcon key={v.id} progress={v.progress} />
+                        ))}
+                     </View>
+                  )}
                 </View>
-                <View style={styles.stopCard}>
+                <View style={[styles.stopCard, isNearest && styles.nearestStopCard]}>
+                  {isNearest && (
+                    <View style={styles.nearestBadge}>
+                      <Text style={styles.nearestBadgeText}>Nearest Stop</Text>
+                    </View>
+                  )}
                   <View style={styles.stopInfo}>
                     <Text style={styles.stopName}>{stop.name}</Text>
-                    <Text style={styles.stopMeta}>{stop.order ? `Stop ${stop.order}` : ''}</Text>
+                    <Text style={styles.stopMeta}>
+                       {stop.order ? `Stop ${stop.order}` : ''}
+                       {index < sortedStops.length - 1 && sortedStops[index+1] && (
+                          ` • ${formatDistance(getDistance(stop.latitude, stop.longitude, sortedStops[index+1].latitude, sortedStops[index+1].longitude))} to next`
+                       )}
+                    </Text>
                   </View>
                   {renderStopEta(stop)}
                 </View>
               </View>
-            ))}
+            )})}
           </View>
         )}
 
@@ -260,16 +353,44 @@ const RouteDetailScreen = ({ navigation, route }) => {
                 <Text style={styles.emptyTabText}>No vehicles currently active</Text>
               </View>
             ) : null}
-            {routeVehicles.map((vehicle) => (
-              <View key={vehicle.id} style={styles.busCard}>
+            {routeVehicles.map((vehicle) => {
+              const direction = vehicle.direction || 'forward';
+              const orderedStops = getOrderedStops(routeData.stops, direction);
+              const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
+              const nextStop = nextStopIndex < orderedStops.length ? orderedStops[nextStopIndex] : null;
+              const sourceStop = orderedStops[0];
+              const destStop = orderedStops[orderedStops.length - 1];
+
+              return (
+              <TouchableOpacity 
+                key={vehicle.id} 
+                style={styles.busCard}
+                activeOpacity={0.8}
+                onPress={() => navigation.navigate('BusDetail', { vehicle, route: routeData })}
+              >
                 <View style={styles.busHeader}>
                   <View style={styles.busNumberBadge}>
                     <MaterialCommunityIcons name="bus" size={14} color={COLORS.white} />
                     <Text style={styles.busNumberText}>{vehicle.number}</Text>
                   </View>
                   <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
-                  <Text style={styles.statusLabel}>{vehicle.status || 'Live'}</Text>
+                  <Text style={styles.statusLabel}>{vehicle.status || 'running'}</Text>
                 </View>
+                
+                <View style={styles.busDirectionRow}>
+                  <Ionicons name="compass-outline" size={16} color={COLORS.primary} />
+                  <Text style={styles.busDirectionText}>
+                    <Text style={{fontWeight: '700'}}>Towards {destStop?.name}</Text> ({sourceStop?.name} <Ionicons name="arrow-forward" size={12} color={COLORS.textSecondary} /> {destStop?.name})
+                  </Text>
+                </View>
+
+                {nextStop && (
+                  <View style={styles.busNextStopRow}>
+                    <Ionicons name="location-outline" size={16} color={COLORS.secondary} />
+                    <Text style={styles.busNextStopText}>Next Stop: <Text style={{fontWeight: '700'}}>{nextStop.name}</Text></Text>
+                  </View>
+                )}
+
                 <View style={styles.busInfo}>
                   <View style={styles.busInfoItem}>
                     <Text style={styles.busInfoLabel}>Vehicle</Text>
@@ -285,12 +406,12 @@ const RouteDetailScreen = ({ navigation, route }) => {
                   </View>
                 </View>
                 <View style={styles.occupancyRow}>
-                  <Text style={styles.occLabel}>Vehicle ID: {vehicle.id}</Text>
-                  <Text style={styles.occPct}>{vehicle.eta}</Text>
+                  <Text style={styles.occLabel}>Estimated Occupancy</Text>
+                  <Text style={styles.occPct}>{vehicle.capacity ? Math.round(65) : 0}%</Text>
                 </View>
                 <OccupancyBar value={vehicle.capacity ? (vehicle.capacity * 0.65) : 0} total={vehicle.capacity || 1} />
-              </View>
-            ))}
+              </TouchableOpacity>
+            )})}
           </View>
         )}
 
@@ -506,6 +627,45 @@ const styles = StyleSheet.create({
   farePrice: { fontSize: FONTS.sizes.lg, fontWeight: '800', color: COLORS.primary },
   fareDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.md },
   buyBtn: { marginTop: SPACING.md },
+  nearestStopCard: {
+    borderColor: COLORS.primary,
+    borderWidth: 1.5,
+    backgroundColor: COLORS.primary + '0A', // very light tint
+  },
+  nearestBadge: {
+    position: 'absolute',
+    top: -10,
+    right: 16,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  nearestBadgeText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  busDirectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  busDirectionText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.text,
+  },
+  busNextStopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: SPACING.md,
+  },
+  busNextStopText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+  },
 });
 
 export default RouteDetailScreen;

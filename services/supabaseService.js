@@ -298,7 +298,7 @@ export const getLiveVehicleLocations = async () => {
 export const getRouteVehicles = async (routeId) => {
   const tripResult = await supabase
     .from('trips')
-    .select('id, vehicle_id, status, start_time, end_time, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
+    .select('id, vehicle_id, status, direction, start_time, end_time, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
     .eq('route_id', routeId)
     .in('status', ['running', 'scheduled']);
 
@@ -343,6 +343,7 @@ export const getRouteVehicles = async (routeId) => {
         longitude: Number(location.longitude) || 0,
       },
       tripId: trip?.id,
+      direction: trip?.direction || 'forward',
     };
   });
 

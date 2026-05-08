@@ -144,7 +144,7 @@ export const UserPreferencesProvider = ({ children }) => {
           // 1. Check if just started (speed > 0 and we haven't notified)
           if (!notifiedStarted.current[vId]) {
             const title = `Bus Started Journey 🚌`;
-            const body = `A bus on Route ${route.number} (${route.name}) has started its journey!`;
+            const body = `A bus on Route ${route.name} has started its journey!`;
             Notifications.scheduleNotificationAsync({
               content: { title, body },
               trigger: null, // immediate
@@ -165,7 +165,7 @@ export const UserPreferencesProvider = ({ children }) => {
 
             if (etaData && etaData.distanceKm <= 3.0) { // within 3 km
               const title = `Bus Arriving Soon! 🚍`;
-              const body = `Bus on Route ${route.number} is reaching your location "${nearestStop.name}" in ${etaData.durationMins} mins.`;
+              const body = `Bus on Route ${route.name} is reaching your location "${nearestStop.name}" in ${Math.round(etaData.durationMins)} mins.`;
               Notifications.scheduleNotificationAsync({
                 content: { title, body },
                 trigger: null,

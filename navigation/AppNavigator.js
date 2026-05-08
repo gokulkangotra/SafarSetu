@@ -26,6 +26,8 @@ const RoutesStack = createStackNavigator();
 const PaymentStack = createStackNavigator();
 const ProfileStack = createStackNavigator();
 
+import BusDetailScreen from '../screens/routes/BusDetailScreen';
+
 // --- Stacks ---
 
 const RoutesStackNav = () => (
@@ -33,6 +35,7 @@ const RoutesStackNav = () => (
     <RoutesStack.Screen name="RoutesList" component={RoutesScreen} />
     <RoutesStack.Screen name="RouteDetail" component={RouteDetailScreen} />
     <RoutesStack.Screen name="RouteMap" component={RouteMapScreen} />
+    <RoutesStack.Screen name="BusDetail" component={BusDetailScreen} />
   </RoutesStack.Navigator>
 );
 
