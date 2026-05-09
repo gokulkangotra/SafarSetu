@@ -26,6 +26,12 @@ import NearestStopWidget from '../../components/NearestStopWidget';
 
 const FILTER_TAGS = ['All', 'Express', 'Feeder', 'Airport', 'Ring'];
 
+const extractRouteNumber = (routeStr) => {
+  if (!routeStr) return 0;
+  const match = routeStr.match(/\d+/);
+  return match ? parseInt(match[0], 10) : 0;
+};
+
 const RoutesScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -132,8 +138,9 @@ const RoutesScreen = ({ navigation }) => {
 
     return { route: r, closestStop, minStopDist };
   }).filter(Boolean).sort((a, b) => {
-    if (a.minStopDist === Infinity && b.minStopDist === Infinity) return 0;
-    return a.minStopDist - b.minStopDist;
+    const numA = extractRouteNumber(a.route.number || a.route.name);
+    const numB = extractRouteNumber(b.route.number || b.route.name);
+    return numA - numB;
   });
 
   const headerOpacity = scrollY.interpolate({

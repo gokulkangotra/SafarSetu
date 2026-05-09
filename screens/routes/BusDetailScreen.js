@@ -121,7 +121,7 @@ const BusDetailScreen = ({ navigation, route }) => {
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Speed</Text>
-              <Text style={styles.statValue}>{vehicle.speed} km/h</Text>
+              <Text style={styles.statValue}>{Math.round(vehicle.speed)} km/h</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Occupancy</Text>

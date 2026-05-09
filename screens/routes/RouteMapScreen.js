@@ -116,8 +116,8 @@ const generateRouteMapHTML = (routeData) => {
           currentIds[v.id] = true;
           
           if (vehicleMarkers[v.id]) {
-            slideMarkerTo(vehicleMarkers[v.id], v.location.latitude, v.location.longitude, 2000);
-            vehicleMarkers[v.id].getPopup().setContent('<b>Bus ' + v.number + '</b><br/>Speed: ' + v.speed + ' km/h');
+            slideMarkerTo(vehicleMarkers[v.id], v.location.latitude, v.location.longitude, 4500);
+            vehicleMarkers[v.id].getPopup().setContent('<b>Bus ' + v.number + '</b><br/>Speed: ' + Math.round(v.speed) + ' km/h');
           } else {
             var iconHtml = '<div style="background:#38BDF8;border-radius:50%;width:32px;height:32px;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;"><span style="color:white;font-size:16px;">🚌</span></div>';
             var vIcon = L.divIcon({
@@ -127,7 +127,7 @@ const generateRouteMapHTML = (routeData) => {
               iconAnchor: [16, 16]
             });
             var marker = L.marker([v.location.latitude, v.location.longitude], {icon: vIcon})
-              .bindPopup('<b>Bus ' + v.number + '</b><br/>Speed: ' + v.speed + ' km/h')
+              .bindPopup('<b>Bus ' + v.number + '</b><br/>Speed: ' + Math.round(v.speed) + ' km/h')
               .addTo(map);
             vehicleMarkers[v.id] = marker;
           }
@@ -182,7 +182,7 @@ const RouteMapScreen = ({ navigation, route }) => {
           });
         }
       });
-      const interval = setInterval(loadBuses, 30000);
+      const interval = setInterval(loadBuses, 5000);
       return () => {
         clearInterval(interval);
         if (subscription) subscription.unsubscribe();

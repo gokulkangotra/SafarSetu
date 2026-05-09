@@ -83,7 +83,7 @@ const generateMapHTML = (centerLat, centerLng) => {
         buses.forEach(function(bus) {
           currentIds[bus.id] = true;
           if (busMarkers[bus.id]) {
-            slideMarkerTo(busMarkers[bus.id], bus.location.latitude, bus.location.longitude, 2000);
+            slideMarkerTo(busMarkers[bus.id], bus.location.latitude, bus.location.longitude, 4500);
           } else {
             var marker = L.marker([bus.location.latitude, bus.location.longitude], {icon: busIcon})
               .addTo(map)
@@ -123,7 +123,7 @@ const LiveMapScreen = () => {
   const insets = useSafeAreaInsets();
   const webViewRef = useRef(null);
   const [buses, setBuses] = useState([]);
-  const [selectedBus, setSelectedBus] = useState(null);
+  const [selectedBusId, setSelectedBusId] = useState(null);
   const [showBusPanel, setShowBusPanel] = useState(false);
   const [busCount, setBusCount] = useState(0);
   const [userLocation, setUserLocation] = useState(null);
@@ -168,7 +168,7 @@ const LiveMapScreen = () => {
   useEffect(() => {
     requestLocationPermission();
     loadLiveVehicles();
-    const interval = setInterval(loadLiveVehicles, 10000);
+    const interval = setInterval(loadLiveVehicles, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -199,7 +199,7 @@ const LiveMapScreen = () => {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'busClick') {
         const bus = buses.find((item) => item.id === data.busId);
-        if (bus) showPanel(bus);
+        if (bus) showPanel(bus.id);
       }
     } catch (e) {
       console.log('WebView message error', e);
@@ -207,7 +207,7 @@ const LiveMapScreen = () => {
   };
 
   const centerOnBus = () => {
-    const targetBus = selectedBus || buses[0];
+    const targetBus = buses.find(bus => bus.id === selectedBusId) || buses[0];
     if (targetBus && webViewRef.current) {
       webViewRef.current.injectJavaScript(`
         if (typeof map !== 'undefined') {
@@ -229,8 +229,8 @@ const LiveMapScreen = () => {
     }
   };
 
-  const showPanel = (bus) => {
-    setSelectedBus(bus);
+  const showPanel = (busId) => {
+    setSelectedBusId(busId);
     setShowBusPanel(true);
     Animated.spring(slideAnim, {
       toValue: 0,
@@ -247,13 +247,15 @@ const LiveMapScreen = () => {
       useNativeDriver: true,
     }).start(() => {
       setShowBusPanel(false);
-      setSelectedBus(null);
+      setSelectedBusId(null);
     });
   };
 
   const centerLat = userLocation?.latitude || buses[0]?.location.latitude || JAMMU_LAT;
   const centerLng = userLocation?.longitude || buses[0]?.location.longitude || JAMMU_LNG;
   const mapHtml = useRef(generateMapHTML(centerLat, centerLng)).current;
+
+  const selectedBus = buses.find(bus => bus.id === selectedBusId);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}> 
@@ -335,7 +337,7 @@ const LiveMapScreen = () => {
             <View style={styles.panelInfoRow}>
               <View style={styles.panelInfoItem}>
                 <Text style={styles.panelLabel}>Speed</Text>
-                <Text style={styles.panelValue}>{selectedBus.speed} km/h</Text>
+                <Text style={styles.panelValue}>{Math.round(selectedBus.speed)} km/h</Text>
               </View>
               <View style={styles.panelInfoItem}>
                 <Text style={styles.panelLabel}>Capacity</Text>

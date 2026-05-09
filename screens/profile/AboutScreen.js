@@ -77,7 +77,7 @@ const AboutScreen = ({ navigation }) => {
           <Text style={styles.heroAppName}>SafarSetu</Text>
           <Text style={styles.heroTagline}>Smart Transport Tracker</Text>
           <View style={styles.versionBadge}>
-            <Text style={styles.versionText}>Version 1.0.0  •  Major Project 2024</Text>
+            <Text style={styles.versionText}>Version 1.0.0  •  Major Project 2026</Text>
           </View>
         </LinearGradient>
 
@@ -161,14 +161,14 @@ const AboutScreen = ({ navigation }) => {
           </View>
           <Text style={[styles.bodyText, { marginTop: SPACING.md }]}>
             Submitted to the Department of Computer Science & Engineering as part of the B.Tech Major Project 
-            requirement under the academic year 2024–25.
+            requirement under the academic year 2025–26.
           </Text>
         </InfoCard>
 
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>Made with ❤️ in Jammu</Text>
-          <Text style={styles.footerSub}>© 2024 SafarSetu. All rights reserved.</Text>
+          <Text style={styles.footerSub}>© 2026 SafarSetu. All rights reserved.</Text>
         </View>
 
       </ScrollView>

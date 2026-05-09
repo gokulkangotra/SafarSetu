@@ -71,6 +71,33 @@ const RouteDetailScreen = ({ navigation, route }) => {
   const [routeVehicles, setRouteVehicles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
+  const [directionFilter, setDirectionFilter] = useState('All');
+
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    return getDistance(lat1, lon1, lat2, lon2);
+  };
+
+  const filteredAndSortedVehicles = React.useMemo(() => {
+    let filtered = [...routeVehicles];
+
+    // 1. Filtering logic
+    if (directionFilter === 'Onwards') {
+      filtered = filtered.filter(v => v.direction === 'forward' || v.direction === 'onward');
+    } else if (directionFilter === 'Backwards') {
+      filtered = filtered.filter(v => v.direction === 'reverse' || v.direction === 'return');
+    }
+
+    // 2. Sorting by nearest distance using Haversine
+    if (userLocation && userLocation.latitude && userLocation.longitude) {
+      filtered.sort((a, b) => {
+        const distA = calculateDistance(userLocation.latitude, userLocation.longitude, a.location?.latitude, a.location?.longitude) ?? Infinity;
+        const distB = calculateDistance(userLocation.latitude, userLocation.longitude, b.location?.latitude, b.location?.longitude) ?? Infinity;
+        return distA - distB;
+      });
+    }
+
+    return filtered;
+  }, [routeVehicles, directionFilter, userLocation]);
 
   useEffect(() => {
     (async () => {
@@ -344,16 +371,43 @@ const RouteDetailScreen = ({ navigation, route }) => {
 
         {activeTab === TAB.VEHICLES && (
           <View>
-            <Text style={styles.sectionTitle}>
-              {routeVehicles.length} Active Vehicle{routeVehicles.length !== 1 ? 's' : ''}
-            </Text>
-            {routeVehicles.length === 0 && !isLoading ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md }}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                {filteredAndSortedVehicles.length} Active Vehicle{filteredAndSortedVehicles.length !== 1 ? 's' : ''}
+              </Text>
+            </View>
+
+            {/* Direction Filter Pills */}
+            <View style={styles.filterContainer}>
+              {['All', 'Onwards', 'Backwards'].map((filter) => {
+                const isActive = directionFilter === filter;
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.filterButton,
+                      isActive ? styles.activeFilterButton : styles.inactiveFilterButton
+                    ]}
+                    onPress={() => setDirectionFilter(filter)}
+                  >
+                    <Text style={[
+                      styles.filterButtonText,
+                      isActive ? styles.activeFilterButtonText : styles.inactiveFilterButtonText
+                    ]}>
+                      {filter}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {filteredAndSortedVehicles.length === 0 && !isLoading ? (
               <View style={styles.emptyTab}>
                 <Text style={styles.emptyTabIcon}>🚌</Text>
-                <Text style={styles.emptyTabText}>No vehicles currently active</Text>
+                <Text style={styles.emptyTabText}>No vehicles match the filter</Text>
               </View>
             ) : null}
-            {routeVehicles.map((vehicle) => {
+            {filteredAndSortedVehicles.map((vehicle) => {
               const direction = vehicle.direction || 'onward';
               const orderedStops = getOrderedStops(routeData.stops, direction);
               const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
@@ -369,12 +423,29 @@ const RouteDetailScreen = ({ navigation, route }) => {
                 onPress={() => navigation.navigate('BusDetail', { vehicle, route: routeData })}
               >
                 <View style={styles.busHeader}>
-                  <View style={styles.busNumberBadge}>
-                    <MaterialCommunityIcons name="bus" size={14} color={COLORS.white} />
-                    <Text style={styles.busNumberText}>{vehicle.number}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={styles.busNumberBadge}>
+                      <MaterialCommunityIcons name="bus" size={14} color={COLORS.white} />
+                      <Text style={styles.busNumberText}>{vehicle.number}</Text>
+                    </View>
+                    
+                    {/* Direction Badge */}
+                    <View style={[
+                      styles.directionBadge, 
+                      { backgroundColor: (vehicle.direction === 'forward' || vehicle.direction === 'onward') ? COLORS.primary + '18' : COLORS.secondary + '18' }
+                    ]}>
+                      <Text style={[
+                        styles.directionBadgeText, 
+                        { color: (vehicle.direction === 'forward' || vehicle.direction === 'onward') ? COLORS.primary : COLORS.secondary }
+                      ]}>
+                        {(vehicle.direction === 'forward' || vehicle.direction === 'onward') ? 'Onwards' : 'Backwards'}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
-                  <Text style={styles.statusLabel}>{vehicle.status || 'running'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
+                    <Text style={styles.statusLabel}>{vehicle.status || 'running'}</Text>
+                  </View>
                 </View>
                 
                 <View style={styles.busDirectionRow}>
@@ -398,7 +469,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
                   </View>
                   <View style={styles.busInfoItem}>
                     <Text style={styles.busInfoLabel}>Speed</Text>
-                    <Text style={styles.busInfoValue}>{vehicle.speed} km/h</Text>
+                    <Text style={styles.busInfoValue}>{Math.round(vehicle.speed)} km/h</Text>
                   </View>
                   <View style={styles.busInfoItem}>
                     <Text style={styles.busInfoLabel}>Capacity</Text>
@@ -628,9 +699,10 @@ const styles = StyleSheet.create({
   fareDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.md },
   buyBtn: { marginTop: SPACING.md },
   nearestStopCard: {
-    borderColor: COLORS.primary,
-    borderWidth: 1.5,
-    backgroundColor: COLORS.primary + '0A', // very light tint
+    backgroundColor: '#E5E7EB',
+    borderWidth: 0,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   nearestBadge: {
     position: 'absolute',
@@ -665,6 +737,46 @@ const styles = StyleSheet.create({
   busNextStopText: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: RADIUS.full,
+    padding: 4,
+    marginBottom: SPACING.md,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeFilterButton: {
+    backgroundColor: COLORS.primary,
+  },
+  inactiveFilterButton: {
+    backgroundColor: 'transparent',
+  },
+  filterButtonText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '700',
+  },
+  activeFilterButtonText: {
+    color: COLORS.white,
+  },
+  inactiveFilterButtonText: {
+    color: COLORS.textSecondary,
+  },
+  directionBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+    marginLeft: 8,
+  },
+  directionBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
 });
 
