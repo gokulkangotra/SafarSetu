@@ -509,7 +509,10 @@ const RouteDetailScreen = ({ navigation, route }) => {
 
             <GradientButton
               title="Buy Ticket Now"
-              onPress={() => navigation.navigate('Payment', { route: routeData })}
+              onPress={() => navigation.navigate('BuyMobileTicket', { 
+                routeData: routeData, 
+                userLocation: userLocation 
+              })}
               size="lg"
               style={styles.buyBtn}
             />

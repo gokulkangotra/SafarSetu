@@ -1,6 +1,6 @@
 // BusDetailScreen.js — Detailed view for a specific active bus
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Animated } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
@@ -12,6 +12,9 @@ const BusDetailScreen = ({ navigation, route }) => {
   const { vehicle: initialVehicle, route: routeData } = route.params;
   const [vehicle, setVehicle] = useState(initialVehicle);
   const [etaData, setEtaData] = useState([]);
+  
+  const [rowLayouts, setRowLayouts] = useState({});
+  const busYAnim = useRef(new Animated.Value(0)).current;
 
   const direction = vehicle.direction || 'onward';
   const orderedStops = React.useMemo(() => getOrderedStops(routeData.stops, direction), [routeData.stops, direction]);
@@ -84,6 +87,40 @@ const BusDetailScreen = ({ navigation, route }) => {
     setEtaData(newEtaData);
   }, [vehicle, orderedStops]);
 
+  useEffect(() => {
+    if (!vehicle.location?.latitude || !vehicle.location?.longitude || !orderedStops.length) return;
+    
+    const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
+    let targetY = 0;
+
+    if (nextStopIndex <= 0) {
+      targetY = rowLayouts[0] ?? 0;
+    } else if (nextStopIndex >= orderedStops.length) {
+      targetY = rowLayouts[orderedStops.length - 1] ?? 0;
+    } else {
+      const prevIdx = nextStopIndex - 1;
+      const startY = rowLayouts[prevIdx] ?? 0;
+      const endY = rowLayouts[nextStopIndex] ?? 0;
+      
+      const prevStop = orderedStops[prevIdx];
+      const nextStop = orderedStops[nextStopIndex];
+      
+      const segmentDist = getDistance(prevStop.latitude, prevStop.longitude, nextStop.latitude, nextStop.longitude) || 0.5;
+      const distToNext = getDistance(vehicle.location.latitude, vehicle.location.longitude, nextStop.latitude, nextStop.longitude) || 0;
+      
+      let progress = segmentDist > 0 ? (segmentDist - distToNext) / segmentDist : 0;
+      progress = Math.max(0, Math.min(1, progress));
+      
+      targetY = startY + (endY - startY) * progress;
+    }
+
+    Animated.timing(busYAnim, {
+      toValue: targetY,
+      duration: 1500,
+      useNativeDriver: true,
+    }).start();
+  }, [vehicle, orderedStops, rowLayouts]);
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -135,13 +172,34 @@ const BusDetailScreen = ({ navigation, route }) => {
           <Text style={styles.sectionTitle}>Journey Timeline</Text>
           
           <View style={styles.timelineWrapper}>
+            <Animated.View 
+              style={[
+                styles.liveBusIcon, 
+                { 
+                  position: 'absolute',
+                  left: 10,
+                  top: 0,
+                  transform: [{ translateY: busYAnim }],
+                }
+              ]}
+            >
+              <Text style={{fontSize: 14}}>🚌</Text>
+            </Animated.View>
+
             {orderedStops.map((stop, index) => {
               const stopEta = etaData.find(e => e.stopId === stop.id) || { passed: false };
               const isLast = index === orderedStops.length - 1;
               const isFirst = index === 0;
               
               return (
-                <View key={stop.id || index} style={styles.timelineRow}>
+                <View 
+                  key={stop.id || index} 
+                  style={styles.timelineRow}
+                  onLayout={(e) => {
+                    const { y } = e.nativeEvent.layout;
+                    setRowLayouts(prev => ({ ...prev, [index]: y }));
+                  }}
+                >
                   <View style={styles.timelineGraphic}>
                     <View style={[
                       styles.timelineDot,
@@ -154,11 +212,7 @@ const BusDetailScreen = ({ navigation, route }) => {
                         stopEta.passed && styles.timelineLinePassed
                       ]} />
                     )}
-                    {stopEta.isNext && (
-                      <View style={styles.liveBusIcon}>
-                        <Text style={{fontSize: 14}}>🚌</Text>
-                      </View>
-                    )}
+
                   </View>
                   
                   <View style={[

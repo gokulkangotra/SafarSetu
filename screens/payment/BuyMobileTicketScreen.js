@@ -14,10 +14,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getRoutes } from '../../services/supabaseService';
+import { getDistance, getOrderedStops } from '../../utils/locationUtils';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import GradientButton from '../../components/GradientButton';
 
-const BuyMobileTicketScreen = ({ navigation }) => {
+const BuyMobileTicketScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,20 +26,60 @@ const BuyMobileTicketScreen = ({ navigation }) => {
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [startStop, setStartStop] = useState(null);
   const [endStop, setEndStop] = useState(null);
+  const [direction, setDirection] = useState('onward');
+  const [isAutoSelected, setIsAutoSelected] = useState(false);
 
   const [pickerType, setPickerType] = useState(null); // 'route', 'start', 'end'
   const [isPickerVisible, setPickerVisible] = useState(false);
 
+  const findNearestStop = React.useCallback((location, stops) => {
+    if (!location || !stops || stops.length === 0) return null;
+    let minDistance = Infinity;
+    let nearest = null;
+    stops.forEach((s) => {
+      const d = getDistance(location.latitude, location.longitude, s.latitude, s.longitude);
+      if (d !== null && d < minDistance) {
+        minDistance = d;
+        nearest = s;
+      }
+    });
+    return nearest;
+  }, []);
+
   useEffect(() => {
     const fetchRoutes = async () => {
+      setLoading(true);
       const { routes: fetchedRoutes, error } = await getRoutes();
       if (!error) {
         setRoutes(fetchedRoutes);
+        
+        const passedRoute = route.params?.routeData;
+        const userLoc = route.params?.userLocation;
+        
+        if (passedRoute) {
+          setSelectedRoute(passedRoute);
+          const rStops = passedRoute.stops || [];
+          let nearest = findNearestStop(userLoc, rStops);
+          
+          if (!nearest && rStops.length > 0) {
+            nearest = [...rStops].sort((a,b) => a.order - b.order)[0];
+          }
+          
+          if (nearest) {
+            setStartStop(nearest);
+            setIsAutoSelected(!!userLoc && !!nearest);
+          }
+        }
       }
       setLoading(false);
     };
     fetchRoutes();
-  }, []);
+  }, [route.params, findNearestStop]);
+
+  const orderedStops = React.useMemo(() => {
+    if (!selectedRoute) return [];
+    return getOrderedStops(selectedRoute.stops, direction);
+  }, [selectedRoute, direction]);
 
   const handleNext = () => {
     if (!selectedRoute || !startStop || !endStop) {
@@ -47,20 +88,22 @@ const BuyMobileTicketScreen = ({ navigation }) => {
     }
 
     const stops = selectedRoute.stops || [];
-    let distance = 0;
-    const sortedStops = [...stops].sort((a,b) => a.order - b.order);
+    const allStopsForward = [...stops].sort((a, b) => a.order - b.order);
     
-    let counting = false;
-    for (const stop of sortedStops) {
-      if (counting) {
-        distance += (stop.distanceFromPrevKm || 0);
-      }
-      if (stop.id === startStop.id) {
-        counting = true;
-      }
-      if (stop.id === endStop.id) {
-        break;
-      }
+    const startIdx = allStopsForward.findIndex(s => s.id === startStop.id);
+    const endIdx = allStopsForward.findIndex(s => s.id === endStop.id);
+    
+    if (startIdx === -1 || endIdx === -1) {
+       Alert.alert('Error', 'Invalid stops selected.');
+       return;
+    }
+
+    const low = Math.min(startIdx, endIdx);
+    const high = Math.max(startIdx, endIdx);
+    
+    let distance = 0;
+    for (let i = low + 1; i <= high; i++) {
+      distance += (allStopsForward[i].distanceFromPrevKm || 0);
     }
 
     const calculatedFare = Math.max(10, Math.round(distance * 4));
@@ -72,6 +115,7 @@ const BuyMobileTicketScreen = ({ navigation }) => {
         to: endStop.name,
         fare: calculatedFare,
         distance,
+        direction,
       }
     });
   };
@@ -95,11 +139,11 @@ const BuyMobileTicketScreen = ({ navigation }) => {
             setSelectedRoute(item);
             setStartStop(null);
             setEndStop(null);
+            setIsAutoSelected(false);
           } else if (pickerType === 'start') {
             setStartStop(item);
-            if (endStop && endStop.order <= item.order) {
-              setEndStop(null);
-            }
+            setEndStop(null); // Force pick new destination
+            setIsAutoSelected(false);
           } else if (pickerType === 'end') {
             setEndStop(item);
           }
@@ -118,14 +162,14 @@ const BuyMobileTicketScreen = ({ navigation }) => {
     if (pickerType === 'route') return routes;
     if (!selectedRoute) return [];
     
-    const stops = [...(selectedRoute.stops || [])].sort((a,b) => a.order - b.order);
-    
     if (pickerType === 'start') {
-      return stops.slice(0, stops.length - 1);
+      return orderedStops.slice(0, orderedStops.length - 1);
     }
     if (pickerType === 'end') {
-      if (!startStop) return stops;
-      return stops.filter(s => s.order > startStop.order);
+      if (!startStop) return orderedStops;
+      const sIdx = orderedStops.findIndex(s => s.id === startStop.id);
+      if (sIdx === -1) return orderedStops;
+      return orderedStops.slice(sIdx + 1);
     }
     return [];
   };
@@ -171,6 +215,32 @@ const BuyMobileTicketScreen = ({ navigation }) => {
         <View style={styles.content}>
           <Text style={styles.sectionTitle}>Plan Your Journey</Text>
           
+          {/* Smart Direction Selector */}
+          <View style={styles.filterContainer}>
+            {[
+              { key: 'onward', label: 'Onward' },
+              { key: 'reverse', label: 'Return' }
+            ].map((item) => {
+              const isActive = direction === item.key;
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.filterButton, isActive ? styles.activeFilterButton : styles.inactiveFilterButton]}
+                  onPress={() => {
+                    setDirection(item.key);
+                    setStartStop(null);
+                    setEndStop(null);
+                    setIsAutoSelected(false);
+                  }}
+                >
+                  <Text style={[styles.filterButtonText, isActive ? styles.activeFilterButtonText : styles.inactiveFilterButtonText]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          
           <View style={styles.card}>
             <TouchableOpacity 
               style={styles.inputContainer} 
@@ -204,6 +274,12 @@ const BuyMobileTicketScreen = ({ navigation }) => {
                 <Text style={[styles.inputText, !startStop && styles.placeholderText]}>
                   {startStop ? startStop.name : 'Select start stop'}
                 </Text>
+                {isAutoSelected && startStop && (
+                  <View style={styles.autoSelectedBadge}>
+                    <Ionicons name="checkmark-circle" size={12} color={COLORS.success} />
+                    <Text style={styles.autoSelectedText}>Nearest Stop Auto Selected</Text>
+                  </View>
+                )}
               </View>
               <Ionicons name="chevron-down" size={20} color={COLORS.textLight} />
             </TouchableOpacity>
@@ -424,7 +500,48 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.border,
     marginLeft: SPACING.xl + 36 + SPACING.md,
-  }
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: RADIUS.full,
+    padding: 4,
+    marginBottom: SPACING.md,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeFilterButton: {
+    backgroundColor: COLORS.primary,
+  },
+  inactiveFilterButton: {
+    backgroundColor: 'transparent',
+  },
+  filterButtonText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '700',
+  },
+  activeFilterButtonText: {
+    color: COLORS.white,
+  },
+  inactiveFilterButtonText: {
+    color: COLORS.textSecondary,
+  },
+  autoSelectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  autoSelectedText: {
+    fontSize: 10,
+    color: COLORS.success,
+    fontWeight: '600',
+  },
 });
 
 export default BuyMobileTicketScreen;
