@@ -257,6 +257,20 @@ const LiveMapScreen = () => {
 
   const selectedBus = buses.find(bus => bus.id === selectedBusId);
 
+  let liveBusEta = 'Live';
+  if (selectedBus && userLocation) {
+    const calculated = calculateETA(
+      selectedBus.location.latitude,
+      selectedBus.location.longitude,
+      userLocation.latitude,
+      userLocation.longitude,
+      selectedBus.speed
+    );
+    if (calculated) {
+      liveBusEta = formatETA(calculated.durationMins, true);
+    }
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}> 
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
@@ -326,7 +340,7 @@ const LiveMapScreen = () => {
             <MaterialCommunityIcons name="bus" size={18} color={COLORS.white} />
             <Text style={styles.busPanelNumber}>{selectedBus.number}</Text>
             <View style={styles.busPanelEtaBadge}>
-              <Text style={styles.busPanelEtaText}>{selectedBus.eta || 'Live'}</Text>
+              <Text style={styles.busPanelEtaText}>{liveBusEta}</Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={hidePanel}>
               <Ionicons name="close" size={18} color={COLORS.white} />

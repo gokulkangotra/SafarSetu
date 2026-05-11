@@ -27,26 +27,87 @@ export const formatDistance = (distanceInKm) => {
   return `${distanceInKm.toFixed(1)} km`;
 };
 
+export const getEffectiveVehicleSpeed = (currentSpeed, previousSmoothedSpeed = null) => {
+  const rawSpeed = Number(currentSpeed) || 0;
+  
+  // Ignore unrealistic speeds below 3 km/h (stops/braking)
+  if (rawSpeed < 3) {
+    // If stopped, use previous stable moving speed or a standard city default 
+    return previousSmoothedSpeed && previousSmoothedSpeed >= 12 
+      ? previousSmoothedSpeed 
+      : 20; // Sane default speed for city transit
+  }
+  
+  // Clamp effective speed between realistic city-bus limits (12–60 km/h)
+  const clampedSpeed = Math.min(Math.max(rawSpeed, 12), 60);
+  
+  // Smooth changes using weighted averaging (70% weight to history)
+  if (previousSmoothedSpeed && previousSmoothedSpeed >= 12) {
+    return (previousSmoothedSpeed * 0.7) + (clampedSpeed * 0.3);
+  }
+  
+  return clampedSpeed;
+};
+
 export const calculateETA = (lat1, lon1, lat2, lon2, vehicleSpeedKmh) => {
   const distKm = getDistance(lat1, lon1, lat2, lon2);
   if (distKm === null) return null;
   
-  const speed = vehicleSpeedKmh || 25; 
+  const speed = vehicleSpeedKmh && vehicleSpeedKmh >= 12 ? vehicleSpeedKmh : 25; 
   const durationMins = (distKm / speed) * 60;
   
   return { distanceKm: distKm, durationMins };
 };
 
-export const formatETA = (durationMins) => {
-  if (durationMins === null || durationMins === undefined) return '';
+export const formatArrivalTime = (durationMins) => {
+  if (durationMins === null || durationMins === undefined || isNaN(durationMins)) return '';
+  
+  // Explicitly handle Asia/Kolkata if needed, but system runs in IST generally. 
+  // Standard local time projection.
+  const arrival = new Date(Date.now() + durationMins * 60000);
+  
+  try {
+    return arrival.toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch (e) {
+    // Fallback for platforms with restricted Intl support
+    const hrs = arrival.getHours();
+    const mins = arrival.getMinutes();
+    const ampm = hrs >= 12 ? 'PM' : 'AM';
+    const h12 = hrs % 12 || 12;
+    const mStr = mins < 10 ? `0${mins}` : mins;
+    return `${h12}:${mStr} ${ampm}`;
+  }
+};
+
+export const formatETA = (durationMins, showClock = true) => {
+  if (durationMins === null || durationMins === undefined || isNaN(durationMins)) return '--';
+  
   const roundedMins = Math.round(durationMins);
-  if (roundedMins < 1) return 'Due now';
-  if (roundedMins >= 60) {
+  let naturalStr = '';
+  
+  if (roundedMins < 1) {
+    naturalStr = 'Arriving';
+  } else if (roundedMins === 1) {
+    naturalStr = '1 min';
+  } else if (roundedMins < 60) {
+    naturalStr = `${roundedMins} mins`;
+  } else {
     const hrs = Math.floor(roundedMins / 60);
     const mins = roundedMins % 60;
-    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+    naturalStr = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
   }
-  return `${roundedMins} mins`;
+  
+  if (showClock) {
+    const clockTime = formatArrivalTime(durationMins);
+    return clockTime ? `${naturalStr} • ${clockTime}` : naturalStr;
+  }
+  
+  return naturalStr;
 };
 
 export const getOrderedStops = (stops, direction = 'onward') => {

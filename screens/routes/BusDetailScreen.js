@@ -5,13 +5,18 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 import { subscribeToVehicleLocations } from '../../services/supabaseService';
-import { calculateETA, formatETA, formatDistance, getDistance, getOrderedStops, getVehicleNextStopIndex } from '../../utils/locationUtils';
+import { calculateETA, formatETA, formatDistance, getDistance, getOrderedStops, getVehicleNextStopIndex, getEffectiveVehicleSpeed } from '../../utils/locationUtils';
 
 const BusDetailScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { vehicle: initialVehicle, route: routeData } = route.params;
   const [vehicle, setVehicle] = useState(initialVehicle);
   const [etaData, setEtaData] = useState([]);
+  
+  // Tracking refs for smart ETA stabilization
+  const smoothedSpeedRef = useRef(null);
+  const stopStartTimeRef = useRef(null);
+
   
   const [rowLayouts, setRowLayouts] = useState({});
   const busYAnim = useRef(new Animated.Value(0)).current;
@@ -45,6 +50,33 @@ const BusDetailScreen = ({ navigation, route }) => {
   useEffect(() => {
     if (!vehicle.location?.latitude || !vehicle.location?.longitude || !orderedStops.length) return;
     
+    const currentSpeed = vehicle.speed || 0;
+    
+    // 1. Determine smoothed speed
+    const effectiveSpeed = getEffectiveVehicleSpeed(currentSpeed, smoothedSpeedRef.current);
+    smoothedSpeedRef.current = effectiveSpeed;
+
+    // 2. Track Stop Duration for Penalty Calculation
+    let stopPenaltyMins = 0;
+    if (currentSpeed < 3) {
+      if (!stopStartTimeRef.current) {
+        stopStartTimeRef.current = Date.now();
+      }
+      const elapsedMs = Date.now() - stopStartTimeRef.current;
+      
+      if (elapsedMs >= 45000 && elapsedMs < 120000) {
+        // Gradual drift penalty for medium stops (45 sec - 2 min)
+        // Slowly add penalty minutes up to ~2 minutes max
+        stopPenaltyMins = ((elapsedMs - 45000) / 60000) * 0.8; 
+      } else if (elapsedMs >= 120000) {
+        // Resuming gradual real-time incremental increase for long stops
+        stopPenaltyMins = 1.0 + ((elapsedMs - 120000) / 60000);
+      }
+      // Short stops (<45s) produce penalty = 0, effectively freezing/stabilizing ETA.
+    } else {
+      stopStartTimeRef.current = null; // Reset upon movement
+    }
+
     const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
     
     const newEtaData = [];
@@ -52,24 +84,51 @@ const BusDetailScreen = ({ navigation, route }) => {
     let prevLng = vehicle.location.longitude;
     let totalDistance = 0;
     let totalMins = 0;
-    const speed = vehicle.speed > 0 ? vehicle.speed : 25;
-
+    
     for (let i = 0; i < orderedStops.length; i++) {
       const stop = orderedStops[i];
+      
       if (i < nextStopIndex) {
-        // Passed stop
         newEtaData.push({ stopId: stop.id, passed: true });
       } else {
-        // Upcoming or next stop
         const distKm = getDistance(prevLat, prevLng, stop.latitude, stop.longitude) || 0.5;
-        const timeSegment = (distKm / speed) * 60;
+        
+        // Live projection based on smoothed effective speed
+        const liveTimeSegment = (distKm / effectiveSpeed) * 60;
+        
+        // Determine historical component
+        // stop.avgTravelTimeMinutes tracks the estimated minutes between last stop and this one
+        const historicalSegment = stop.avgTravelTimeMinutes || liveTimeSegment;
+        
+        let segmentFinalTime = 0;
         
         if (i === nextStopIndex) {
-          totalDistance = getDistance(vehicle.location.latitude, vehicle.location.longitude, stop.latitude, stop.longitude) || distKm;
-          totalMins = (totalDistance / speed) * 60;
+          // Next stop special case: compute remaining proportional distance
+          const directDistToNext = getDistance(vehicle.location.latitude, vehicle.location.longitude, stop.latitude, stop.longitude) || distKm;
+          
+          const liveRemainingTime = (directDistToNext / effectiveSpeed) * 60;
+          
+          // Calculate distance proportion based on recorded stop geometry if valid
+          let distFraction = 1.0;
+          if (stop.distanceFromPrevKm && stop.distanceFromPrevKm > 0) {
+            distFraction = Math.min(1.0, directDistToNext / stop.distanceFromPrevKm);
+          }
+          
+          const historicalRemainingTime = historicalSegment * distFraction;
+          
+          // Blend: 60% real-time speed tracking, 40% historical consistency
+          segmentFinalTime = (liveRemainingTime * 0.6) + (historicalRemainingTime * 0.4);
+          
+          // Incorporate Stop Penalty ONLY on the immediately approaching stop
+          segmentFinalTime += stopPenaltyMins;
+          
+          totalDistance = directDistToNext;
+          totalMins = segmentFinalTime;
         } else {
+          // Upcoming subsequent segments: full blend
+          segmentFinalTime = (liveTimeSegment * 0.6) + (historicalSegment * 0.4);
           totalDistance += distKm;
-          totalMins += timeSegment;
+          totalMins += segmentFinalTime;
         }
         
         prevLat = stop.latitude;
@@ -80,7 +139,7 @@ const BusDetailScreen = ({ navigation, route }) => {
           passed: false,
           isNext: i === nextStopIndex,
           distanceKm: totalDistance,
-          durationMins: totalMins
+          durationMins: Math.max(0, totalMins) // Guard against negative drift edge cases
         });
       }
     }
