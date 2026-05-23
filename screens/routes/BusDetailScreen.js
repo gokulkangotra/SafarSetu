@@ -26,6 +26,11 @@ const BusDetailScreen = ({ navigation, route }) => {
   const sourceStop = orderedStops[0];
   const destStop = orderedStops[orderedStops.length - 1];
 
+  const initialTime = vehicle.recordedAt ? new Date(vehicle.recordedAt).getTime() : Date.now();
+  const [lastUpdateAt, setLastUpdateAt] = useState(initialTime);
+  const [secondsAgo, setSecondsAgo] = useState(0);
+  const [signalStatus, setSignalStatus] = useState('active');
+
   useEffect(() => {
     let subscription = null;
     if (vehicle.id) {
@@ -37,8 +42,12 @@ const BusDetailScreen = ({ navigation, route }) => {
             location: {
               latitude: Number(newLoc.latitude) || prev.location.latitude,
               longitude: Number(newLoc.longitude) || prev.location.longitude,
-            }
+            },
+            recordedAt: newLoc.recorded_at
           }));
+          setLastUpdateAt(Date.now());
+          setSecondsAgo(0);
+          setSignalStatus('active');
         }
       });
     }
@@ -46,6 +55,58 @@ const BusDetailScreen = ({ navigation, route }) => {
       if (subscription) subscription.unsubscribe();
     };
   }, [vehicle.id]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastUpdateAt) / 1000);
+      setSecondsAgo(elapsed);
+      
+      let newSignal = 'active';
+      if (elapsed > 10 && elapsed <= 30) {
+        newSignal = 'weak';
+      } else if (elapsed > 30) {
+        newSignal = 'offline';
+      }
+      setSignalStatus(newSignal);
+
+      // Route-aware stops timeline prediction
+      if (elapsed > 3 && elapsed <= 30 && vehicle.location?.latitude && vehicle.location?.longitude && orderedStops.length > 0) {
+        const speedMps = (vehicle.speed || 20) / 3.6;
+        const confidence = Math.max(0, (30 - elapsed) / 27.0);
+        const distToMoveKm = (speedMps * confidence * 1.0) / 1000.0;
+
+        const nextStopIndex = getVehicleNextStopIndex(vehicle, orderedStops);
+        if (nextStopIndex < orderedStops.length) {
+          const nextStop = orderedStops[nextStopIndex];
+          const dy = nextStop.latitude - vehicle.location.latitude;
+          const dx = nextStop.longitude - vehicle.location.longitude;
+          const distDeg = Math.sqrt(dx * dx + dy * dy);
+          const moveDeg = distToMoveKm * 0.009; // Approximate degree step
+
+          if (distDeg > 0) {
+            let newLat = vehicle.location.latitude;
+            let newLng = vehicle.location.longitude;
+
+            if (distDeg > moveDeg) {
+              const ratio = moveDeg / distDeg;
+              newLat += dy * ratio;
+              newLng += dx * ratio;
+            } else {
+              newLat = nextStop.latitude;
+              newLng = nextStop.longitude;
+            }
+
+            setVehicle(prev => ({
+              ...prev,
+              location: { latitude: newLat, longitude: newLng }
+            }));
+          }
+        }
+      }
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [lastUpdateAt, vehicle.location, vehicle.speed, orderedStops]);
 
   useEffect(() => {
     if (!vehicle.location?.latitude || !vehicle.location?.longitude || !orderedStops.length) return;
@@ -200,28 +261,61 @@ const BusDetailScreen = ({ navigation, route }) => {
         
         {/* Bus Info Card */}
         <View style={styles.infoCard}>
+          {signalStatus === 'weak' && (
+            <View style={styles.weakSignalBanner}>
+              <MaterialCommunityIcons name="wifi-strength-1-alert" size={16} color="#F97316" />
+              <Text style={styles.weakSignalBannerText}>Weak Signal - Predicting live movement...</Text>
+            </View>
+          )}
+          {signalStatus === 'offline' && (
+            <View style={styles.offlineBanner}>
+              <MaterialCommunityIcons name="wifi-strength-off" size={16} color="#6B7280" />
+              <Text style={styles.offlineBannerText}>Offline - Displaying last known location</Text>
+            </View>
+          )}
+
           <View style={styles.directionRow}>
             <Ionicons name="compass" size={20} color={COLORS.primary} />
-            <View>
-              <Text style={styles.directionLabel}>Towards {destStop?.name}</Text>
-              <Text style={styles.directionRoute}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.directionLabel} numberOfLines={1}>Towards {destStop?.name}</Text>
+              <Text style={styles.directionRoute} numberOfLines={1}>
                 {sourceStop?.name} <Ionicons name="arrow-forward" size={12} color={COLORS.textSecondary} /> {destStop?.name}
               </Text>
             </View>
           </View>
+          
           <View style={styles.divider} />
+          
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Status</Text>
-              <Text style={[styles.statValue, { color: COLORS.success }]}>{vehicle.status || 'Live'}</Text>
+              <View style={styles.statusBadgeRow}>
+                <View style={[
+                  styles.statusDot, 
+                  { backgroundColor: signalStatus === 'active' ? '#22C55E' : (signalStatus === 'weak' ? '#F97316' : '#9CA3AF') }
+                ]} />
+                <Text style={[
+                  styles.statValue, 
+                  { color: signalStatus === 'active' ? '#22C55E' : (signalStatus === 'weak' ? '#F97316' : '#6B7280') }
+                ]}>
+                  {signalStatus === 'active' ? 'Live' : (signalStatus === 'weak' ? 'Weak' : 'Offline')}
+                </Text>
+              </View>
             </View>
+            
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Speed</Text>
               <Text style={styles.statValue}>{Math.round(vehicle.speed)} km/h</Text>
             </View>
+            
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Occupancy</Text>
               <Text style={styles.statValue}>{vehicle.capacity ? Math.round(65) : 0}%</Text>
+            </View>
+
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Updated</Text>
+              <Text style={styles.statValue}>{secondsAgo === 0 ? 'Just now' : `${secondsAgo}s ago`}</Text>
             </View>
           </View>
         </View>
@@ -239,6 +333,8 @@ const BusDetailScreen = ({ navigation, route }) => {
                   left: 10,
                   top: 0,
                   transform: [{ translateY: busYAnim }],
+                  backgroundColor: signalStatus === 'active' ? '#38BDF8' : (signalStatus === 'weak' ? '#F97316' : '#9CA3AF'),
+                  borderColor: signalStatus === 'active' ? COLORS.white : (signalStatus === 'weak' ? '#FFEDD5' : '#F3F4F6'),
                 }
               ]}
             >
@@ -351,8 +447,53 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: SPACING.md },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
   statItem: { alignItems: 'center' },
-  statLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textSecondary, marginBottom: 4 },
+  statLabel: { fontSize: FONTS.sizes.xs - 2, color: COLORS.textSecondary, marginBottom: 4, textTransform: 'uppercase', fontWeight: '600' },
   statValue: { fontSize: FONTS.sizes.sm, fontWeight: '700', color: COLORS.text },
+  
+  weakSignalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.md,
+  },
+  weakSignalBannerText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '700',
+    color: '#C2410C',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.md,
+  },
+  offlineBannerText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  statusBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   
   timelineCard: {
     backgroundColor: COLORS.surface,

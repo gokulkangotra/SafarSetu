@@ -109,6 +109,27 @@ const RouteDetailScreen = ({ navigation, route }) => {
     })();
   }, []);
 
+  // 1-second interval to update secondsAgo and signalStatus for all route vehicles
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRouteVehicles(prev => prev.map(v => {
+        const nextSec = (v.secondsAgo ?? 0) + 1;
+        let nextStatus = 'active';
+        if (nextSec > 10 && nextSec <= 30) {
+          nextStatus = 'weak';
+        } else if (nextSec > 30) {
+          nextStatus = 'offline';
+        }
+        return {
+          ...v,
+          secondsAgo: nextSec,
+          signalStatus: nextStatus
+        };
+      }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let subscription = null;
     if (routeData?.id) {
@@ -118,13 +139,23 @@ const RouteDetailScreen = ({ navigation, route }) => {
           subscription = subscribeToVehicleLocations(vIds, (newLoc) => {
             setRouteVehicles(prev => prev.map(v => 
               v.id === newLoc.vehicle_id 
-                ? { ...v, location: { latitude: Number(newLoc.latitude), longitude: Number(newLoc.longitude) }, speed: Number(newLoc.speed) }
+                ? { 
+                    ...v, 
+                    location: { latitude: Number(newLoc.latitude), longitude: Number(newLoc.longitude) }, 
+                    speed: Number(newLoc.speed),
+                    heading: Number(newLoc.heading) || v.heading,
+                    recordedAt: newLoc.recorded_at,
+                    secondsAgo: 0,
+                    signalStatus: 'active'
+                  }
                 : v
             ));
           });
         }
       });
-      const interval = setInterval(loadRouteVehicles, 20000); // Polling as fallback
+      
+      // Standardize polling fallback to 5 seconds
+      const interval = setInterval(loadRouteVehicles, 5000);
       return () => {
         clearInterval(interval);
         if (subscription) subscription.unsubscribe();
@@ -137,7 +168,16 @@ const RouteDetailScreen = ({ navigation, route }) => {
     setIsLoading(true);
     const { vehicles, error } = await getRouteVehicles(routeData.id);
     if (!error) {
-      setRouteVehicles(vehicles);
+      setRouteVehicles(prev => {
+        return vehicles.map(newV => {
+          const match = prev.find(p => p.id === newV.id);
+          return {
+            ...newV,
+            signalStatus: match ? match.signalStatus : 'active',
+            secondsAgo: match ? match.secondsAgo : 0
+          };
+        });
+      });
       setIsLoading(false);
       return vehicles;
     } else {
@@ -442,9 +482,17 @@ const RouteDetailScreen = ({ navigation, route }) => {
                       </Text>
                     </View>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
-                    <Text style={styles.statusLabel}>{vehicle.status || 'running'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={[
+                      styles.statusDot, 
+                      { backgroundColor: vehicle.signalStatus === 'active' || !vehicle.signalStatus ? '#22C55E' : (vehicle.signalStatus === 'weak' ? '#F97316' : '#9CA3AF') }
+                    ]} />
+                    <Text style={[
+                      styles.statusLabel,
+                      { color: vehicle.signalStatus === 'active' || !vehicle.signalStatus ? '#22C55E' : (vehicle.signalStatus === 'weak' ? '#F97316' : '#6B7280'), fontWeight: '700' }
+                    ]}>
+                      {vehicle.signalStatus === 'active' || !vehicle.signalStatus ? 'Live' : (vehicle.signalStatus === 'weak' ? 'Weak Signal' : 'Offline')}
+                    </Text>
                   </View>
                 </View>
                 
@@ -474,6 +522,10 @@ const RouteDetailScreen = ({ navigation, route }) => {
                   <View style={styles.busInfoItem}>
                     <Text style={styles.busInfoLabel}>Capacity</Text>
                     <Text style={styles.busInfoValue}>{vehicle.capacity}</Text>
+                  </View>
+                  <View style={styles.busInfoItem}>
+                    <Text style={styles.busInfoLabel}>Updated</Text>
+                    <Text style={styles.busInfoValue}>{vehicle.secondsAgo === 0 || !vehicle.secondsAgo ? 'Just now' : `${vehicle.secondsAgo}s ago`}</Text>
                   </View>
                 </View>
                 <View style={styles.occupancyRow}>
