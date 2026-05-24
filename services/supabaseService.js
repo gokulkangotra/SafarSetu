@@ -278,26 +278,67 @@ export const getRouteTrips = async (routeId) => {
 
 export const getLiveVehicleLocations = async () => {
   const { data, error } = await supabase
-    .from('vehicle_locations')
-    .select('id, vehicle_id, latitude, longitude, speed, recorded_at, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
+    .from('vehicle_live_state')
+    .select('id, vehicle_id, latitude, longitude, speed, heading, signal_status, prediction_active, last_real_update, recorded_at, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
     .order('recorded_at', { ascending: false });
+
   if (error) {
-    return { vehicles: [], error };
+    console.warn("vehicle_live_state view query failed, falling back to vehicle_locations table: ", error);
+    // Fallback gracefully to vehicle_locations
+    const fbResult = await supabase
+      .from('vehicle_locations')
+      .select('id, vehicle_id, latitude, longitude, speed, recorded_at, vehicle:vehicles(id, vehicle_number, capacity, vehicle_type)')
+      .order('recorded_at', { ascending: false });
+
+    if (fbResult.error) {
+      return { vehicles: [], error: fbResult.error };
+    }
+
+    const latestByVehicle = new Map();
+    (fbResult.data || []).forEach((location) => {
+      if (!latestByVehicle.has(location.vehicle_id)) {
+        latestByVehicle.set(location.vehicle_id, location);
+      }
+    });
+
+    const vehicles = Array.from(latestByVehicle.values()).map((location) => ({
+      id: location.vehicle_id,
+      number: location.vehicle?.vehicle_number || location.vehicle_id,
+      capacity: location.vehicle?.capacity || 0,
+      vehicleType: location.vehicle?.vehicle_type || 'bus',
+      speed: Number(location.speed) || 0,
+      heading: 0,
+      signalStatus: 'active',
+      predictionActive: false,
+      lastRealUpdate: location.recorded_at,
+      location: {
+        latitude: Number(location.latitude) || 0,
+        longitude: Number(location.longitude) || 0,
+      },
+      recordedAt: location.recorded_at,
+    }));
+
+    return { vehicles, error: null };
   }
 
   const latestByVehicle = new Map();
   (data || []).forEach((location) => {
-    if (!latestByVehicle.has(location.vehicle_id)) {
-      latestByVehicle.set(location.vehicle_id, location);
+    const vId = location.vehicle_id || location.id;
+    if (vId && !latestByVehicle.has(vId)) {
+      latestByVehicle.set(vId, location);
     }
   });
 
   const vehicles = Array.from(latestByVehicle.values()).map((location) => ({
-    id: location.vehicle_id,
-    number: location.vehicle?.vehicle_number || location.vehicle_id,
+    id: location.vehicle_id || location.id,
+    number: location.vehicle?.vehicle_number || location.vehicle_id || location.id,
     capacity: location.vehicle?.capacity || 0,
     vehicleType: location.vehicle?.vehicle_type || 'bus',
     speed: Number(location.speed) || 0,
+    heading: Number(location.heading) || 0,
+    signalStatus: location.signal_status || 'active',
+    predictionActive: location.prediction_active || false,
+    lastRealUpdate: location.last_real_update || location.recorded_at,
     location: {
       latitude: Number(location.latitude) || 0,
       longitude: Number(location.longitude) || 0,
@@ -394,6 +435,60 @@ export const subscribeToVehicleLocations = (vehicleIds, onUpdate) => {
       }
     )
     .subscribe();
+};
+
+export const subscribeToAllVehicleLocations = (onUpdate) => {
+  const channelName = `public:vehicle_locations:all:${Date.now()}_${Math.random()}`;
+  return supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'vehicle_locations',
+      },
+      (payload) => {
+        onUpdate(payload.new);
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'vehicle_locations',
+      },
+      (payload) => {
+        onUpdate(payload.new);
+      }
+    )
+    .subscribe();
+};
+
+export const getVehicleActiveTrip = async (vehicleId) => {
+  const { data, error } = await supabase
+    .from('trips')
+    .select('id, route_id, direction, status, route:routes(id, route_name, start_location, end_location, distance_km, route_stops(id, stop_order, stop:stops(id, stop_name, latitude, longitude))))')
+    .eq('vehicle_id', vehicleId)
+    .eq('status', 'running')
+    .maybeSingle();
+
+  if (error || !data) {
+    return { trip: null, error };
+  }
+
+  const translatedRoute = translateRoute(data.route, 0);
+  return {
+    trip: {
+      id: data.id,
+      routeId: data.route_id,
+      direction: data.direction,
+      status: data.status,
+      route: translatedRoute,
+    },
+    error: null,
+  };
 };
 
 export const getUserProfile = async (userId) => {
