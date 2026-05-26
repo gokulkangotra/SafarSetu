@@ -219,7 +219,7 @@ const BuyMobileTicketScreen = ({ navigation, route }) => {
           <View style={styles.filterContainer}>
             {[
               { key: 'onward', label: 'Onward' },
-              { key: 'reverse', label: 'Return' }
+              { key: 'backward', label: 'Return' }
             ].map((item) => {
               const isActive = direction === item.key;
               return (

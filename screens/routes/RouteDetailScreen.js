@@ -73,6 +73,11 @@ const RouteDetailScreen = ({ navigation, route }) => {
   const [userLocation, setUserLocation] = useState(null);
   const [directionFilter, setDirectionFilter] = useState('All');
 
+  const displayDirection =
+    directionFilter === 'Backwards'
+      ? 'backward'
+      : 'onward';
+
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     return getDistance(lat1, lon1, lat2, lon2);
   };
@@ -84,7 +89,12 @@ const RouteDetailScreen = ({ navigation, route }) => {
     if (directionFilter === 'Onwards') {
       filtered = filtered.filter(v => v.direction === 'forward' || v.direction === 'onward');
     } else if (directionFilter === 'Backwards') {
-      filtered = filtered.filter(v => v.direction === 'reverse' || v.direction === 'return');
+      filtered = filtered.filter(
+        v =>
+          v.direction === 'reverse' ||
+          v.direction === 'return' ||
+          v.direction === 'backward'
+      );
     }
 
     // 2. Sorting by nearest distance using Haversine
@@ -259,7 +269,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
   };
 
   const getBusesOnSegment = (index) => {
-     const sortedStops = getOrderedStops(routeData.stops, 'onward');
+     const sortedStops = getOrderedStops(routeData.stops, displayDirection);
      const stopCurrent = sortedStops[index];
      const stopNext = sortedStops[index + 1];
      if (!stopNext || !routeVehicles) return [];
@@ -268,8 +278,8 @@ const RouteDetailScreen = ({ navigation, route }) => {
          if (!v.location?.latitude || !v.location?.longitude) return null;
          
          const direction = v.direction || 'onward';
-         // We only show buses on the forward path timeline if they are traveling forward
-         if (direction !== 'onward' && direction !== 'forward') return null;
+         const normDir = direction === 'backward' || direction === 'backwards' || direction === 'reverse' || direction === 'return' ? 'backward' : 'onward';
+         if (normDir !== displayDirection) return null;
 
          const orderedStops = getOrderedStops(routeData.stops, direction);
          const nextStopIndex = getVehicleNextStopIndex(v, orderedStops);
@@ -367,7 +377,7 @@ const RouteDetailScreen = ({ navigation, route }) => {
         {activeTab === TAB.STOPS && (
           <View>
             <Text style={styles.sectionTitle}>{routeData.stops?.length || 0} Stops</Text>
-            {getOrderedStops(routeData.stops, 'onward').map((stop, index, sortedStops) => {
+            {getOrderedStops(routeData.stops, displayDirection).map((stop, index, sortedStops) => {
               const isNearest = stop.id === nearestStopId;
               return (
               <View key={stop.id || `${index}`} style={styles.stopRow}>
@@ -472,13 +482,13 @@ const RouteDetailScreen = ({ navigation, route }) => {
                     {/* Direction Badge */}
                     <View style={[
                       styles.directionBadge, 
-                      { backgroundColor: (vehicle.direction === 'forward' || vehicle.direction === 'onward') ? COLORS.primary + '18' : COLORS.secondary + '18' }
+                      { backgroundColor: (vehicle.direction === 'backward') ? COLORS.secondary + '18' : COLORS.primary + '18' }
                     ]}>
                       <Text style={[
                         styles.directionBadgeText, 
-                        { color: (vehicle.direction === 'forward' || vehicle.direction === 'onward') ? COLORS.primary : COLORS.secondary }
+                        { color: (vehicle.direction === 'backward') ? COLORS.secondary : COLORS.primary }
                       ]}>
-                        {(vehicle.direction === 'forward' || vehicle.direction === 'onward') ? 'Onwards' : 'Backwards'}
+                        {(vehicle.direction === 'backward') ? 'Backwards' : 'Onwards'}
                       </Text>
                     </View>
                   </View>

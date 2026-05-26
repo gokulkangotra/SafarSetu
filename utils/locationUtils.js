@@ -110,13 +110,24 @@ export const formatETA = (durationMins, showClock = true) => {
   return naturalStr;
 };
 
-export const getOrderedStops = (stops, direction = 'onward') => {
-  if (!stops) return [];
-  const sorted = [...stops].sort((a,b) => (a.order || 0) - (b.order || 0));
-  if (direction === 'return' || direction === 'reverse') {
-    return sorted.reverse();
-  }
-  return sorted;
+export const getOrderedStops = (
+  stops = [],
+  direction = 'onward'
+) => {
+
+  const sorted = [...stops].sort(
+    (a, b) => (a.order || 0) - (b.order || 0)
+  );
+
+  const isBackward =
+    direction === 'backward' ||
+    direction === 'backwards' ||
+    direction === 'reverse' ||
+    direction === 'return';
+
+  return isBackward
+    ? sorted.reverse()
+    : sorted;
 };
 
 export const getVehicleNextStopIndex = (v, sortedStops) => {

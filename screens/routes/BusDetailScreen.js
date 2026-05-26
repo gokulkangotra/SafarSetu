@@ -21,7 +21,7 @@ const BusDetailScreen = ({ navigation, route }) => {
   const [rowLayouts, setRowLayouts] = useState({});
   const busYAnim = useRef(new Animated.Value(0)).current;
 
-  const direction = vehicle.direction || 'onward';
+  const direction = vehicle.direction === 'backward' || vehicle.direction === 'backwards' || vehicle.direction === 'reverse' || vehicle.direction === 'return' ? 'backward' : 'onward';
   const orderedStops = React.useMemo(() => getOrderedStops(routeData.stops, direction), [routeData.stops, direction]);
   const sourceStop = orderedStops[0];
   const destStop = orderedStops[orderedStops.length - 1];

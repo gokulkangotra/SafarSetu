@@ -23,7 +23,11 @@ import {
 } from '../../services/supabaseService';
 import { calculateETA, formatETA } from '../../utils/locationUtils';
 
-const generateMapHTML = (centerLat, centerLng) => {
+// Module-level persistent cache for state preservation across screens
+let cachedBuses = [];
+let cachedUserLocation = null;
+
+const generateMapHTML = (centerLat, centerLng, initialBuses = []) => {
   const centerLatValue = centerLat || 32.7266;
   const centerLngValue = centerLng || 74.8570;
 
@@ -240,7 +244,7 @@ const generateMapHTML = (centerLat, centerLng) => {
       var currSeg = segmentIndex;
       var currFrac = fraction;
       
-      var isReverse = (direction === 'return' || direction === 'reverse' || direction === 'backwards');
+      var isReverse = (direction === 'return' || direction === 'reverse' || direction === 'backward' || direction === 'backwards');
       var step = isReverse ? -1 : 1;
       
       while (remainingDistance > 0) {
@@ -363,11 +367,17 @@ const generateMapHTML = (centerLat, centerLng) => {
             number: v.number,
             direction: incomingDirection,
             speed: incomingSpeed,
+            smoothedSpeed: incomingSpeed,
             heading: incomingHeading,
             lastRealLat: incomingLat,
             lastRealLng: incomingLng,
             currentLat: incomingLat,
             currentLng: incomingLng,
+            animStartLat: incomingLat,
+            animStartLng: incomingLng,
+            animEndLat: incomingLat,
+            animEndLng: incomingLng,
+            animStartTime: 0, // 0 means no animation in progress
             lastUpdateReceivedAt: performance.now(),
             signalStatus: v.signalStatus || 'active',
             lastPostSec: -1,
@@ -403,19 +413,61 @@ const generateMapHTML = (centerLat, centerLng) => {
           
           // Check if coordinates represent a new update
           if (data.lastRealLat !== incomingLat || data.lastRealLng !== incomingLng) {
-            // Drift rejection (> 5km ignored)
-            var driftDist = getDistance(data.lastRealLat, data.lastRealLng, incomingLat, incomingLng);
-            if (driftDist > 5000) {
-              console.warn("Ignoring GPS jump of " + Math.round(driftDist) + "m");
+            var now = performance.now();
+            var timeDiff = (now - data.lastUpdateReceivedAt) / 1000;
+            var dist = getDistance(data.lastRealLat, data.lastRealLng, incomingLat, incomingLng);
+
+            // Ignore invalid GPS jumps: implied speed > 120 km/h
+            if (timeDiff > 0.5) {
+              var impliedSpeedKmh = (dist / timeDiff) * 3.6;
+              if (impliedSpeedKmh > 120 && dist > 100) {
+                console.warn("Ignoring invalid GPS jump: implied speed " + impliedSpeedKmh.toFixed(1) + " km/h, distance " + dist.toFixed(1) + "m");
+                return;
+              }
+            }
+
+            // Ignore huge sudden jumps caused by GPS drift
+            if (dist > 3000 && timeDiff < 60) {
+              console.warn("Ignoring GPS drift jump: " + dist.toFixed(1) + "m");
               return;
+            }
+
+            // If we are in the initial loading window, snap immediately without animating
+            if (now - pageLoadedAt < 4000) {
+              data.currentLat = incomingLat;
+              data.currentLng = incomingLng;
+              data.animStartLat = incomingLat;
+              data.animStartLng = incomingLng;
+              data.animEndLat = incomingLat;
+              data.animEndLng = incomingLng;
+              data.animStartTime = 0;
+            } else {
+              // Start smooth linear animation from current rendered position to new real GPS point
+              data.animStartLat = data.currentLat;
+              data.animStartLng = data.currentLng;
+              data.animEndLat = incomingLat;
+              data.animEndLng = incomingLng;
+              data.animStartTime = now;
             }
 
             data.lastRealLat = incomingLat;
             data.lastRealLng = incomingLng;
-            data.speed = incomingSpeed;
+            data.lastUpdateReceivedAt = now;
+
+            // Speed calculation and smoothing
+            var calculatedSpeed = incomingSpeed;
+            if (calculatedSpeed <= 0 && timeDiff > 0.5) {
+              calculatedSpeed = (dist / timeDiff) * 3.6;
+            }
+            if (data.smoothedSpeed === undefined) {
+              data.smoothedSpeed = calculatedSpeed;
+            } else {
+              data.smoothedSpeed = (data.smoothedSpeed * 0.7) + (calculatedSpeed * 0.3);
+            }
+            data.speed = data.smoothedSpeed;
+
             data.heading = incomingHeading;
             data.direction = incomingDirection;
-            data.lastUpdateReceivedAt = performance.now();
 
             if (activeRouteVehicleId === id && activeRoutePath) {
               var proj = findClosestPointOnPolyline(incomingLat, incomingLng, activeRoutePath);
@@ -450,6 +502,8 @@ const generateMapHTML = (centerLat, centerLng) => {
         console.error("WebView error batch updating buses:", e);
       }
     }
+
+    var pageLoadedAt = performance.now();
 
     // 60FPS physics and dead reckoning prediction loop
     var lastTickTime = performance.now();
@@ -532,62 +586,25 @@ const generateMapHTML = (centerLat, centerLng) => {
             }
           }
 
-          // 2. Telemetry and Prediction calculations
-          var targetLat = data.lastRealLat;
-          var targetLng = data.lastRealLng;
-
-          if (elapsedTime <= 3) {
-            targetLat = data.lastRealLat;
-            targetLng = data.lastRealLng;
-          } else if (elapsedTime > 3 && elapsedTime <= 30) {
-            // Predict movement (Dead reckoning along exact route polyline if focused, or using heading)
-            var speedMps = (data.speed || 20) / 3.6;
-            speedMps = Math.min(Math.max(speedMps, 5), 25); // Clamp speed 18-90 km/h
-
-            // Linear confidence decay to 0 over 30s
-            var confidenceDecay = Math.max(0, (30 - elapsedTime) / 27.0);
-            var distToMove = speedMps * confidenceDecay * dt;
-
-            if (activeRouteVehicleId === id && activeRoutePath && activeRoutePath.length > 1) {
-              var newProj = getPointAlongPolyline(
-                activeRoutePath, 
-                data.routeSegmentIndex, 
-                data.routeFraction, 
-                distToMove, 
-                data.direction
-              );
-              
-              if (newProj) {
-                targetLat = newProj.lat;
-                targetLng = newProj.lng;
-                data.routeSegmentIndex = newProj.segmentIndex;
-                data.routeFraction = newProj.fraction;
-              }
+          // 2. Smooth Marker Animation (Linear, 1.8 seconds duration)
+          var ANIM_DURATION = 1800; // ms
+          if (data.animStartTime > 0) {
+            var elapsedAnim = now - data.animStartTime;
+            if (elapsedAnim < ANIM_DURATION) {
+              var t = elapsedAnim / ANIM_DURATION;
+              // Linear interpolation
+              data.currentLat = data.animStartLat + (data.animEndLat - data.animStartLat) * t;
+              data.currentLng = data.animStartLng + (data.animEndLng - data.animStartLng) * t;
             } else {
-              // Dead reckoning along bearing
-              var bearingRad = (data.heading || 0) * Math.PI / 180;
-              var metersLat = distToMove * Math.cos(bearingRad);
-              var metersLng = distToMove * Math.sin(bearingRad);
-              
-              targetLat = data.currentLat + (metersLat / 111000);
-              targetLng = data.currentLng + (metersLng / (111000 * Math.cos(data.currentLat * Math.PI / 180)));
+              // Animation completed
+              data.currentLat = data.animEndLat;
+              data.currentLng = data.animEndLng;
+              data.animStartTime = 0; // stop animating
             }
           } else {
-            targetLat = data.currentLat;
-            targetLng = data.currentLng;
-          }
-
-          // 3. Smooth Delta-time independent Linear catching-up interpolation
-          var catchupRate = 1 - Math.exp(-6 * dt);
-          var gapDist = getDistance(data.currentLat, data.currentLng, targetLat, targetLng);
-          
-          if (gapDist > 500) {
-            // Reconnection/Snap correction
-            data.currentLat = targetLat;
-            data.currentLng = targetLng;
-          } else {
-            data.currentLat += (targetLat - data.currentLat) * catchupRate;
-            data.currentLng += (targetLng - data.currentLng) * catchupRate;
+            // Keep marker fixed at target GPS location
+            data.currentLat = data.animEndLat;
+            data.currentLng = data.animEndLng;
           }
 
           marker.setLatLng([data.currentLat, data.currentLng]);
@@ -615,6 +632,14 @@ const generateMapHTML = (centerLat, centerLng) => {
       } catch(e) {}
     }
 
+    // Render initial cached vehicles immediately on map load
+    var initialBuses = ${JSON.stringify(initialBuses)};
+    if (initialBuses && initialBuses.length > 0) {
+      initialBuses.forEach(function(v) {
+        updateSingleVehicle(v);
+      });
+    }
+
     L.control.zoom({position: 'bottomright'}).addTo(map);
   </script>
 </body>
@@ -624,11 +649,11 @@ const generateMapHTML = (centerLat, centerLng) => {
 const LiveMapScreen = () => {
   const insets = useSafeAreaInsets();
   const webViewRef = useRef(null);
-  const [buses, setBuses] = useState([]);
+  const [buses, setBuses] = useState(cachedBuses);
   const [selectedBusId, setSelectedBusId] = useState(null);
   const [showBusPanel, setShowBusPanel] = useState(false);
-  const [busCount, setBusCount] = useState(0);
-  const [userLocation, setUserLocation] = useState(null);
+  const [busCount, setBusCount] = useState(cachedBuses.length);
+  const [userLocation, setUserLocation] = useState(cachedUserLocation);
   const slideAnim = useRef(new Animated.Value(300)).current;
 
   // Jammu city coordinates as default
@@ -640,10 +665,12 @@ const LiveMapScreen = () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const location = await Location.getCurrentPositionAsync({});
-        setUserLocation({
+        const loc = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-        });
+        };
+        setUserLocation(loc);
+        cachedUserLocation = loc; // Update persistent cache
       } else {
         Alert.alert(
           'Location Permission',
@@ -661,6 +688,7 @@ const LiveMapScreen = () => {
     const { vehicles: liveVehicles, error } = await getLiveVehicleLocations();
     if (!error) {
       setBuses(liveVehicles);
+      cachedBuses = liveVehicles; // Update persistent cache
       setBusCount(liveVehicles.length);
     } else {
       console.log('Live vehicle load error:', error);
@@ -676,6 +704,7 @@ const LiveMapScreen = () => {
     subscription = subscribeToAllVehicleLocations((newLoc) => {
       setBuses((prev) => {
         const match = prev.find((b) => b.id === newLoc.vehicle_id);
+        let updatedList;
         if (match) {
           const updatedBus = {
             ...match,
@@ -700,7 +729,7 @@ const LiveMapScreen = () => {
             `);
           }
 
-          return prev.map((b) => (b.id === newLoc.vehicle_id ? updatedBus : b));
+          updatedList = prev.map((b) => (b.id === newLoc.vehicle_id ? updatedBus : b));
         } else {
           // If a new vehicle has joined tracking dynamically, add it with default details
           const newBus = {
@@ -728,8 +757,10 @@ const LiveMapScreen = () => {
             `);
           }
 
-          return [...prev, newBus];
+          updatedList = [...prev, newBus];
         }
+        cachedBuses = updatedList; // Update persistent cache
+        return updatedList;
       });
     });
 
@@ -769,13 +800,15 @@ const LiveMapScreen = () => {
         if (bus) showPanel(bus.id);
       } else if (data.type === 'STATUS_CHANGE' || data.type === 'TIME_UPDATE') {
         // Dynamic status/time updates from WebView physics engine
-        setBuses((prev) =>
-          prev.map((v) =>
+        setBuses((prev) => {
+          const updatedList = prev.map((v) =>
             v.id === data.vehicleId
               ? { ...v, signalStatus: data.status, secondsAgo: data.secondsAgo, speed: data.speed }
               : v
-          )
-        );
+          );
+          cachedBuses = updatedList; // Update persistent cache
+          return updatedList;
+        });
       }
     } catch (e) {
       console.log('WebView message error', e);
@@ -896,9 +929,10 @@ const LiveMapScreen = () => {
     });
   };
 
+  const initialBusesRef = useRef(cachedBuses);
   const centerLat = userLocation?.latitude || buses[0]?.location.latitude || JAMMU_LAT;
   const centerLng = userLocation?.longitude || buses[0]?.location.longitude || JAMMU_LNG;
-  const mapHtml = useRef(generateMapHTML(centerLat, centerLng)).current;
+  const mapHtml = useRef(generateMapHTML(centerLat, centerLng, initialBusesRef.current)).current;
 
   const selectedBus = buses.find((bus) => bus.id === selectedBusId);
 
@@ -929,7 +963,7 @@ const LiveMapScreen = () => {
       statusText = 'Weak Signal';
       bgDotColor = '#F97316';
     } else if (signal === 'offline') {
-      statusText = 'Offline';
+      statusText = 'No Signal';
       bgDotColor = '#6B7280';
     }
 

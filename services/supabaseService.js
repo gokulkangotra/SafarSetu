@@ -45,6 +45,15 @@ const translateRoute = (route, index = 0) => {
   };
 };
 
+const normalizeDirection = (dir) => {
+  if (!dir) return 'onward';
+  const d = dir.toLowerCase();
+  if (d === 'backward' || d === 'backwards' || d === 'reverse' || d === 'return') {
+    return 'backward';
+  }
+  return 'onward';
+};
+
 const mapBooking = (booking) => {
   const trip = booking.trip || null;
   const route = trip?.route || null;
@@ -397,7 +406,7 @@ export const getRouteVehicles = async (routeId) => {
         longitude: Number(location.longitude) || 0,
       },
       tripId: trip?.id,
-      direction: trip?.direction || 'onward',
+      direction: normalizeDirection(trip?.direction),
     };
   });
 
@@ -483,7 +492,7 @@ export const getVehicleActiveTrip = async (vehicleId) => {
     trip: {
       id: data.id,
       routeId: data.route_id,
-      direction: data.direction,
+      direction: normalizeDirection(data.direction),
       status: data.status,
       route: translatedRoute,
     },
